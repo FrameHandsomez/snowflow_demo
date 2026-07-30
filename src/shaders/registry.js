@@ -65,6 +65,10 @@ import clothPrepassVert from "./clothPrepass.vertex.wgsl?raw";
 import wakePrepassVert from "./wakePrepass.vertex.wgsl?raw";
 import wakePrepassFrag from "./wakePrepass.fragment.wgsl?raw";
 import crystalPrepassVert from "./crystalPrepass.vertex.wgsl?raw";
+import shrineVert from "./shrine.vertex.wgsl?raw";
+import shrineFrag from "./shrine.fragment.wgsl?raw";
+import shrineDepthVert from "./shrineDepth.vertex.wgsl?raw";
+import shrinePrepassVert from "./shrinePrepass.vertex.wgsl?raw";
 
 
 const INCLUDES = {
@@ -129,6 +133,10 @@ const SHADERS = {
     wakePrepassVertexShader: wakePrepassVert,
     wakePrepassPixelShader: wakePrepassFrag,
     crystalPrepassVertexShader: crystalPrepassVert,
+    shrineVertexShader: shrineVert,
+    shrinePixelShader: shrineFrag,
+    shrineDepthVertexShader: shrineDepthVert,
+    shrinePrepassVertexShader: shrinePrepassVert,
 };
 
 let registered = false;
