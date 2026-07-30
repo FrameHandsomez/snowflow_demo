@@ -164,8 +164,9 @@ async function boot() {
     );
     spells.registerPrepass(depthPass);
 
-    // The rig needs ground heights to keep the spring arm above the snow.
+    // The rig needs ground heights and shrine volumes to keep the spring arm clear.
     rig.groundAt = (x, z) => terrain.heightAt(x, z);
+    rig.obstacles = shrine.obstacles;
 
     const post = new PostChain(scene, rig.camera, depthPass, sky);
 
