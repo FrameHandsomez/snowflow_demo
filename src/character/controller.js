@@ -54,6 +54,8 @@ const TAKEOFF_LOCK = 0.14; // ignore ground snap right after leaving the snow
 const DOUBLE_LOCK = 0.08; // brief lock after double so ground doesn't eat it
 const AIR_ACCEL = 14.0;
 const GROUND_SNAP = 0.08; // metres of snap when nearly grounded
+const COLLISION_RADIUS = 0.34;
+const COLLISION_HEIGHT = 1.55;
 /** Front-flip duration after a double jump, seconds. */
 const FLIP_TIME = 0.72;
 /** Ollie pose timeline length (independent of hang time). */
@@ -65,9 +67,11 @@ const STRIDE_BASE = 1.55;
 export class CharacterController {
     /**
      * @param {{ heightAt(x:number,z:number):number, normalAt(x:number,z:number,out:Vector3):Vector3 }} terrain
+     * @param {readonly {minX:number, minY:number, minZ:number, maxX:number, maxY:number, maxZ:number}[]} [obstacles]
      */
-    constructor(terrain) {
+    constructor(terrain, obstacles = []) {
         this.terrain = terrain;
+        this.obstacles = obstacles;
 
         this.position = new Vector3(0, 0, 0);
         this.velocity = new Vector3(0, 0, 0);
@@ -208,8 +212,7 @@ export class CharacterController {
         this._olliePoseStep(h);
 
         // ---------------------------------------------------- integrate XZ + Y
-        this.position.x += this.velocity.x * h;
-        this.position.z += this.velocity.z * h;
+        this._resolveObstacles(this.velocity.x * h, this.velocity.z * h);
         this.position.y += this.velY * h;
 
         this.groundY = this.terrain.heightAt(this.position.x, this.position.z);
@@ -237,6 +240,64 @@ export class CharacterController {
         this.air = expDamp(this.air, this.grounded ? 0 : 1, this.grounded ? 14 : 10, h);
 
         this._gait(h);
+    }
+
+    /**
+     * Sweeps the character's horizontal cylinder against static world volumes.
+     * Separating the axes preserves a natural wall slide instead of stopping all
+     * movement at the first corner contact.
+     */
+    _resolveObstacles(dx, dz) {
+        const obstacles = this.obstacles;
+        if (obstacles.length === 0) {
+            this.position.x += dx;
+            this.position.z += dz;
+            return;
+        }
+
+        const y0 = this.position.y;
+        const y1 = y0 + COLLISION_HEIGHT;
+        let x = this.position.x;
+        let z = this.position.z;
+        let hitX = false;
+
+        if (dx !== 0) {
+            let nextX = x + dx;
+            for (let i = 0; i < obstacles.length; i++) {
+                const o = obstacles[i];
+                if (y1 <= o.minY || y0 >= o.maxY || z < o.minZ - COLLISION_RADIUS || z > o.maxZ + COLLISION_RADIUS) continue;
+                if (dx > 0 && x <= o.minX - COLLISION_RADIUS && nextX > o.minX - COLLISION_RADIUS) {
+                    nextX = Math.min(nextX, o.minX - COLLISION_RADIUS);
+                    hitX = true;
+                } else if (dx < 0 && x >= o.maxX + COLLISION_RADIUS && nextX < o.maxX + COLLISION_RADIUS) {
+                    nextX = Math.max(nextX, o.maxX + COLLISION_RADIUS);
+                    hitX = true;
+                }
+            }
+            x = nextX;
+        }
+
+        let hitZ = false;
+        if (dz !== 0) {
+            let nextZ = z + dz;
+            for (let i = 0; i < obstacles.length; i++) {
+                const o = obstacles[i];
+                if (y1 <= o.minY || y0 >= o.maxY || x < o.minX - COLLISION_RADIUS || x > o.maxX + COLLISION_RADIUS) continue;
+                if (dz > 0 && z <= o.minZ - COLLISION_RADIUS && nextZ > o.minZ - COLLISION_RADIUS) {
+                    nextZ = Math.min(nextZ, o.minZ - COLLISION_RADIUS);
+                    hitZ = true;
+                } else if (dz < 0 && z >= o.maxZ + COLLISION_RADIUS && nextZ < o.maxZ + COLLISION_RADIUS) {
+                    nextZ = Math.max(nextZ, o.maxZ + COLLISION_RADIUS);
+                    hitZ = true;
+                }
+            }
+            z = nextZ;
+        }
+
+        this.position.x = x;
+        this.position.z = z;
+        if (hitX) this.velocity.x = 0;
+        if (hitZ) this.velocity.z = 0;
     }
 
     _walkStep(h) {

@@ -12,6 +12,13 @@ import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
 
 export const SHRINE_SPAWN = Object.freeze({ x: 8, z: -6 });
 
+/**
+ * Static world-space collision volume. It deliberately has no Babylon types:
+ * shrine gameplay must not depend on the render mesh or its lifecycle.
+ *
+ * @typedef {{minX:number, minY:number, minZ:number, maxX:number, maxY:number, maxZ:number}} StaticObstacleAabb
+ */
+
 const SHRINE_CASCADES = 2;
 const BASE_RADIUS = 7.2;
 
@@ -31,7 +38,10 @@ export class SpawnShrine {
         this.sky = sky;
         this.shadows = shadows;
 
-        this.mesh = buildMesh(scene, terrain, SHRINE_SPAWN.x, SHRINE_SPAWN.z);
+        const built = buildMesh(scene, terrain, SHRINE_SPAWN.x, SHRINE_SPAWN.z);
+        this.mesh = built.mesh;
+        /** @type {readonly StaticObstacleAabb[]} */
+        this.obstacles = built.obstacles;
         this.material = this._makeMaterial();
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 1;
@@ -162,6 +172,8 @@ function buildMesh(scene, terrain, cx, cz) {
     const positions = [];
     const normals = [];
     const indices = [];
+    /** @type {StaticObstacleAabb[]} */
+    const obstacles = [];
 
     const groundAt = (x, z) => terrain.heightAt(cx + x, cz + z);
 
@@ -186,9 +198,18 @@ function buildMesh(scene, terrain, cx, cz) {
         }
     };
 
-    const addModule = (x, z, halfX, halfZ, bottom, top) => {
+    const addModule = (x, z, halfX, halfZ, bottom, top, blocksMovement = false) => {
         const y = groundAt(x, z);
-        addBox(cx + x - halfX, y + bottom, cz + z - halfZ, cx + x + halfX, y + top, cz + z + halfZ);
+        const minX = cx + x - halfX;
+        const minY = y + bottom;
+        const minZ = cz + z - halfZ;
+        const maxX = cx + x + halfX;
+        const maxY = y + top;
+        const maxZ = cz + z + halfZ;
+        addBox(minX, minY, minZ, maxX, maxY, maxZ);
+        if (blocksMovement) {
+            obstacles.push(Object.freeze({ minX, minY, minZ, maxX, maxY, maxZ }));
+        }
     };
 
     // Low outer blocks define the courtyard without constricting the spawn space.
@@ -203,15 +224,15 @@ function buildMesh(scene, terrain, cx, cz) {
     addModule(0, -6.45, 1.9, 0.62, -0.04, 0.36);
 
     // Broken gate piers preserve an open central route while giving the entry scale.
-    addModule(-4.65, -5.15, 0.7, 0.7, 0, 4.65);
-    addModule(4.65, -5.15, 0.62, 0.68, 0, 3.35);
+    addModule(-4.65, -5.15, 0.7, 0.7, 0, 4.65, true);
+    addModule(4.65, -5.15, 0.62, 0.68, 0, 3.35, true);
     addModule(-2.85, -5.05, 1.35, 0.48, 2.55, 3.18);
 
     // Damaged side walls frame the courtyard but keep gaps for movement and sightlines.
-    addModule(-5.65, -1.9, 0.52, 1.55, -0.1, 1.7);
-    addModule(-5.48, 2.35, 0.56, 1.25, -0.1, 2.4);
-    addModule(5.6, -1.4, 0.52, 1.4, -0.1, 2.15);
-    addModule(5.45, 2.9, 0.58, 1.45, -0.1, 1.35);
+    addModule(-5.65, -1.9, 0.52, 1.55, -0.1, 1.7, true);
+    addModule(-5.48, 2.35, 0.56, 1.25, -0.1, 2.4, true);
+    addModule(5.6, -1.4, 0.52, 1.4, -0.1, 2.15, true);
+    addModule(5.45, 2.9, 0.58, 1.45, -0.1, 1.35, true);
 
     const pillars = [
         [-4.65, -3.55, 5.35, 0.52],
@@ -222,11 +243,11 @@ function buildMesh(scene, terrain, cx, cz) {
     ];
     for (let i = 0; i < pillars.length; i++) {
         const [x, z, height, width] = pillars[i];
-        addModule(x, z, width, width, 0, height);
+        addModule(x, z, width, width, 0, height, true);
     }
 
     // Tiered north altar makes the ruin read as a destination beyond the courtyard.
-    addModule(0, 5.15, 1.75, 1.25, -0.14, 0.52);
+    addModule(0, 5.15, 1.75, 1.25, -0.14, 0.52, true);
     addModule(0, 5.15, 1.18, 0.84, 0.52, 1.05);
     addModule(0, 5.15, 0.58, 0.42, 1.05, 1.72);
 
@@ -252,5 +273,5 @@ function buildMesh(scene, terrain, cx, cz) {
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
     mesh.metadata = { triangles: indices.length / 3, vertices: positions.length / 3 };
-    return mesh;
+    return { mesh, obstacles: Object.freeze(obstacles) };
 }

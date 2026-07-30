@@ -131,7 +131,7 @@ async function boot() {
 
     await loading.phase("placing character", 0.62);
 
-    const character = new CharacterController(terrain);
+    const character = new CharacterController(terrain, shrine.obstacles);
     character.position.set(SHRINE_SPAWN.x, 0, SHRINE_SPAWN.z);
     character.position.y = terrain.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
 
