@@ -1,10 +1,11 @@
 # HANDOFF — snowflow_demo (Frame)
 
 **วันที่:** 2026-07-30  
-**Repo:** `C:\Users\WHITEPERx\Documents\GitHub\snowflow_demo`  
+**Repo (local):** `C:\Users\chinn\web-projects\snowflow_demo`  
 **Remote:** `https://github.com/FrameHandsomez/snowflow_demo`  
-**Branch:** `main`  
-**Release tag (docs):** **v0.2.0** — Frame playability pass  
+**Branch งาน shrine:** `feature/spawn-ruin`  
+**Tip (code):** `feature/spawn-ruin` — camera obstruction + collision + modular shrine + docs  
+**Base / release ก่อนหน้า:** **v0.2.0** — Frame playability pass (`6b91898`)  
 **Upstream tip ตอน clone:** `5450397 Init`
 
 อ่านคู่กับ:
@@ -14,22 +15,24 @@
 
 ---
 
-## เป้าหมาย session นี้
+## เป้าหมาย session ล่าสุด (spawn ruin)
 
-1. ติดตั้ง repo + dev server  
-2. ตั้งปุ่มเองได้ (rebind 2 ช่อง)  
-3. Crosshair แบบ Valorant + import code + เลือกสี  
-4. กระโดด / double+flip / surf ollie + เก็บโมเมนตัมพอประมาณ  
-5. Skill bar สำหรับ spells 1–5 + HUD toggle และ spacing ที่ไม่บัง gameplay hint
+1. สร้าง ruin / shrine ถาวรรอบจุดเริ่มเกม  
+2. วางบน terrain height จริง + กดหิมะรอบฐาน  
+3. spawn ตัวละคร **ใน** courtyard  
+4. gameplay collision แยกจาก render mesh  
+5. camera spring-arm ไม่ทะลุ geometry shrine  
+6. แยก commit ตาม task + เตรียม docs / PR สำหรับทีม
 
-Frame ต้องการ **ทำต่อแนวตัวเอง** — เอกสารชุดนี้คือแผนที่ของ delta ทั้งหมด
+งาน playability ก่อนหน้า (v0.2.0) ยังอยู่: rebind, crosshair, jump/flip/ollie, skill bar
 
 ---
 
 ## รันโปรเจกต์
 
 ```bash
-cd "C:\Users\WHITEPERx\Documents\GitHub\snowflow_demo"
+cd "C:\Users\chinn\web-projects\snowflow_demo"
+git checkout feature/spawn-ruin
 npm install          # ถ้ายังไม่มี node_modules
 npm run dev -- --host ::  # instance เดียวสำหรับ localhost + 127.0.0.1
 ```
@@ -38,31 +41,75 @@ npm run dev -- --host ::  # instance เดียวสำหรับ localhost
 
 ---
 
-## สถานะโค้ดตอน ship v0.2.0
+## สถานะโค้ด — feature/spawn-ruin
 
-### ไฟล์ใหม่
+### Commits ที่เกี่ยวกับ shrine (ใหม่ → เก่า)
+
+```text
+docs:  record spawn ruin gameplay pass          (docs commit รอบนี้)
+63b8c1d feat(camera): block shrine camera clipping
+73d59dd feat(gameplay): add shrine collision volumes
+7e233f3 feat(world): build modular shrine layout
+7e800bf feat(world): expand shrine spawn courtyard
+9faa7f1 Merge origin/main into feature/spawn-ruin
+5cf740b feat(world): spawn permanent ruin shrine
+```
+
+(`783d5c7` skill bar มาจาก main ผ่าน merge — ไม่ใช่งาน shrine โดยตรง)
+
+### ไฟล์ใหม่ (shrine)
+
+| ไฟล์ | หน้าที่ |
+|---|---|
+| `src/world/shrine.js` | `SpawnShrine`, `SHRINE_SPAWN`, mesh + `obstacles` AABB |
+| `src/shaders/shrine.vertex.wgsl` | beauty vertex |
+| `src/shaders/shrine.fragment.wgsl` | stone/frost + shadows + spell lights |
+| `src/shaders/shrineDepth.vertex.wgsl` | cascade shadow caster |
+| `src/shaders/shrinePrepass.vertex.wgsl` | camera-depth prepass |
+
+### ไฟล์แก้หลัก (shrine)
+
+| ไฟล์ | ทำไมสำคัญ |
+|---|---|
+| `src/main.js` | construct, wire obstacles, stamp snow, warm-up, update, `SNOWFLOW.shrine` |
+| `src/character/controller.js` | optional obstacles + X/Z wall slide |
+| `src/core/camera.js` | socket arm + AABB obstruction |
+| `src/shaders/registry.js` | register shrine programs |
+
+### ไฟล์ใหม่ / แก้จาก v0.2.0 + skill bar (ยังใช้ได้)
+
 | ไฟล์ | หน้าที่ |
 |---|---|
 | `src/core/bindings.js` | defaults, 2-slot binds, localStorage v2 |
 | `src/ui/crosshair.js` | draw + parse + profile + color |
-| `src/ui/skillBar.js` | spell HUD 5 ช่อง, key labels, active progress, hint spacing |
+| `src/ui/skillBar.js` | spell HUD 5 ช่อง |
+| `src/character/controller.js` | jump / double / flip / ollie **และ** shrine collision |
 | `CHANGELOG.md` / `HANDOFF.md` / `GUIDE.md` | เอกสาร Frame |
 
-### ไฟล์แก้หลัก
-| ไฟล์ | ทำไมสำคัญ |
-|---|---|
-| `src/core/input.js` | poll bindings, jump edge, surf/sprint |
-| `src/core/settings.js` | `showCrosshair`, `crosshairCode`, `showSkillBar`, HUD schema |
-| `src/ui/overlay.js` | Controls rebind UI + HUD crosshair / skill bar toggles |
-| `src/main.js` | mount Crosshair + SkillBar, exposes both on `SNOWFLOW` |
-| `src/spells/spellSystem.js` | `hudSlots()` snapshot ของ state spell ต่อ frame |
-| `src/character/controller.js` | jump / double / flip / ollie physics |
-| `src/character/figure.js` | air / flip / ollie pose |
-| `src/character/snowContact.js` | land + takeoff spray |
-| `README.md`, `index.html` | controls / hint |
+### สถาปัตยกรรมที่ต้องรักษา
 
-### ยังไม่แตะ (upstream เดิม)
-terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โครงสร้างเดิม
+- **Render mesh ≠ gameplay collision**  
+  - mesh = indexed static boxes ชุดเดียว (beauty / shadow / prepass)  
+  - obstacles = immutable world AABB จาก module ที่ `blocksMovement`  
+  - อย่า infer collision จาก triangles / Babylon picking
+- **`stampSnow()` หลัง `await terrain.warmUp()`** — warm-up ล้าง brush queue
+- **Camera obstruction ใช้ AABB เดียวกับ player** ผ่าน `rig.obstacles = shrine.obstacles`
+- Spawn คงที่: `SHRINE_SPAWN = { x: 8, z: -6 }` (กลางลาน, ทางใต้เปิด)
+
+### Blockers ที่ authored แล้ว
+
+- Gate piers  
+- Four side-wall segments  
+- Five tall pillars  
+- Bottom altar tier  
+
+### Non-block (ตั้งใจ)
+
+- Low outer courtyard blocks  
+- Broad approach steps  
+- Elevated fallen lintel  
+- Upper altar tiers  
+- Low rubble  
 
 ---
 
@@ -70,6 +117,9 @@ terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โค
 
 | Input | ผล |
 |---|---|
+| เข้าเกมใหม่ | ยืนใน courtyard ของ ruin ที่ `SHRINE_SPAWN` |
+| เดิน/surf เข้าเสา/ผนัง/แท่น | ชนแล้ว slide ตามแกนที่ว่าง |
+| หมุนกล้องรอบ ruin | arm หดก่อนทะลุ; ห่างแล้วค่อยยืดกลับ |
 | Click canvas | pointer lock |
 | WASD / arrows | เดิน (rebind ได้) |
 | Shift | sprint |
@@ -78,7 +128,7 @@ terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โค
 | **RMB hold** | snow-surf |
 | **RMB + Space** (บนบอร์ด) | surf ollie |
 | 1–5 | spells (2 = hold) |
-| Skill bar | แสดง cooldown / hold / key bindings ของ spells 1–5; ปิดได้ที่ F1 → HUD |
+| Skill bar | cooldown / hold / key; ปิดได้ที่ F1 → HUD |
 | F1 / `` ` `` | settings |
 
 **กฎ jump ที่สำคัญ**
@@ -105,7 +155,9 @@ terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โค
 หลังโหลดเกม มี global:
 
 ```js
-SNOWFLOW.character   // CharacterController
+SNOWFLOW.shrine      // SpawnShrine → .mesh, .obstacles, .stampSnow()
+SNOWFLOW.character   // CharacterController → .obstacles, jump/surf state
+SNOWFLOW.rig         // CameraRig → .obstacles, .obstacleDistance, .groundAt
 SNOWFLOW.figure      // Character (mesh wrapper) → .figure = Figure skeleton
 SNOWFLOW.crosshair   // Crosshair API
 SNOWFLOW.skillBar    // SkillBar API / DOM state
@@ -116,34 +168,31 @@ SNOWFLOW.S           // settings
 ตัวอย่าง:
 
 ```js
-SNOWFLOW.character.jumpsUsed
-SNOWFLOW.character.flipping
-SNOWFLOW.character.flipAngle
-SNOWFLOW.crosshair.getProfile()
-SNOWFLOW.crosshair.applyCode("0;P;c;1;…")
+SNOWFLOW.shrine.obstacles.length
+SNOWFLOW.character.obstacles === SNOWFLOW.shrine.obstacles
+SNOWFLOW.rig.obstacleDistance
+SNOWFLOW.character.position  // ควรใกล้ {x:8, z:-6} ตอน spawn
 ```
 
 ---
 
 ## งานที่ค้าง / แนวทาง Frame ต่อได้
 
-จัดลำดับตามที่คุยใน session (ไม่บังคับ):
+จัดลำดับหลัง merge `feature/spawn-ruin` (ไม่บังคับ):
 
-1. **Feel**
-   - จูน ollie distance / flip timing เพิ่ม
-   - coyote/buffer ให้ “tight” แบบเกม action
-2. **Presentation**
-   - flip ให้อ่านชัดจากกล้อง third-person (อาจเพิ่ม camera kick)
-   - ollie trail / board-only VFX แยกจาก walk kick
-3. **Crosshair**
-   - parser field Valorant ให้ครบขึ้น
-   - preset ปุ่มเดียวจาก vcrdb top list
-4. **Engineering**
-   - `git commit` งาน Frame เป็นก้อนชัด (bindings / hud / jump)
-   - แยก constants jump ไปไฟล์ `src/character/jumpTune.js` ถ้าจูนบ่อย
-5. **Design Frame**
-   - ระบบ skill/combat ต่อจาก spells 1–5
-   - progression / UI นอก overlay ดีบั๊ก
+1. **Shrine gameplay**
+   - altar interaction zone (checkpoint / unlock / ritual) — แยก volume จาก collision
+   - respawn ผูก `SHRINE_SPAWN` หรือ checkpoint ถัดไป
+2. **Shrine presentation**
+   - VFX / spell-light รอบ altar
+   - material: triplanar stone, frost mask, weathered variation
+3. **Optional hero asset**
+   - imported `.glb` ทีหลัง — ต้อง review license, textures, shadow, depth prepass, collision แยก
+4. **Feel (จาก v0.2.0)**
+   - จูน ollie / flip / coyote
+5. **Engineering**
+   - visual QA บน Chrome/Edge WebGPU จริง (walk/surf/jump + หมุนกล้องรอบ gate/wall/pillar/altar)
+   - อย่า commit `package-lock.json` / `.zcode/` ถ้าไม่เกี่ยวกับงาน
 
 ---
 
@@ -151,36 +200,47 @@ SNOWFLOW.crosshair.applyCode("0;P;c;1;…")
 
 | ความเสี่ยง | ทำไม |
 |---|---|
+| ผูก collision กับ mesh | visual tweak จะเปลี่ยน gameplay โดยไม่ตั้งใจ |
+| เรียก `stampSnow` ก่อน `terrain.warmUp` | brush หาย |
+| เพิ่ม module blocking แต่ลืม `blocksMovement` | เดินทะลุ |
 | แก้ `figure.js` root pitch | กระทบ walk + surf + flip พร้อมกัน |
-| ใส่ jump ตอน `surf > 0.5` ผิดเงื่อนไข | เคยบล็อก jump ทั้งก้อน |
 | `pollInput` / `endFrame` ลำดับใน `main.js` | `jumpPressed` ต้องมีชีวิตถึง `character.update` |
-| เซฟ localStorage เก่า | Space อาจยังผูก surf ถ้าไม่ migrate/reset |
-| Vite IPv4/IPv6 แยก process | `localhost` อาจวิ่ง `[::1]` แต่ `127.0.0.1` วิ่ง IPv4 และได้โค้ดคนละชุด — kill process เดิม แล้วรัน instance เดียวด้วย `npm run dev -- --host ::` |
+| Vite IPv4/IPv6 แยก process | kill process เดิม แล้วรัน `npm run dev -- --host ::` |
+| in-app browser WebGPU | อาจค้างที่ `creating device` — ใช้ browser หลักทดสอบ |
 
 ---
 
-## Verify ก่อนปิดมือ / ก่อน commit
+## Git / PR กับทีม
 
-- [ ] `npm run dev` ขึ้น `http://localhost:5173/`
-- [ ] F1 → Controls เห็น **2 ช่อง** ต่อแถว + Jump
-- [ ] F1 → HUD crosshair เปิดได้ + import code + เปลี่ยนสี
-- [ ] Skill bar แสดง 5 ช่อง, key label ตรง bindings, และ gameplay hint ไม่ทับ bar
-- [ ] Space ×1 = กระโดดครั้งเดียว (ไม่ bunny-hop เอง)
-- [ ] Space ×2 ในอากาศ = ดีด + ม้วน
-- [ ] RMB surf + Space = ollie พุ่งตามบอร์ด (ไม่ไกลหลุดแมพ)
-- [ ] 1–5 spells ยังใช้ได้
+```text
+Branch:  feature/spawn-ruin
+Base:    main
+อย่า stage: package-lock.json, .zcode/
+หลัง merge: checkout main → pull → ลบ feature branch local/remote
+```
+
+### Verify ก่อน merge
+
+- [ ] `npm run build` ผ่าน
+- [ ] เข้าเกม spawn ใน courtyard เห็น ruin
+- [ ] เดิน/surf ชน gate / wall / pillar / altar base แล้ว slide
+- [ ] กล้องไม่ทะลุโครงสร้าง; ห่างแล้ว arm กลับ
+- [ ] steps / rubble ต่ำยังเดินผ่านได้
+- [ ] skill bar + jump/surf ยังปกติ
+- [ ] F1 / spells 1–5 ยังใช้ได้
 
 ---
 
 ## ข้อความสั้นสำหรับ AI ตัวถัดไป
 
 ```text
-Repo: C:\Users\WHITEPERx\Documents\GitHub\snowflow_demo
-อ่าน HANDOFF.md + GUIDE.md + CHANGELOG.md ก่อน
-งาน Frame เพิ่ม: bindings 2-slot, crosshair Valorant import,
-jump + double flip + surf ollie
-ไฟล์หลัก: src/core/bindings.js, input.js, src/ui/crosshair.js, overlay.js,
-src/character/controller.js, figure.js, snowContact.js
-ยังไม่ commit — working tree dirty จาก Init
-อย่าเดา control: Space=jump, RMB=surf, double ต้องปล่อยแล้วกดใหม่
+Repo: C:\Users\chinn\web-projects\snowflow_demo
+Branch: feature/spawn-ruin (shrine + collision + camera done)
+อ่าน HANDOFF.md + GUIDE.md + CHANGELOG.md [Unreleased] ก่อน
+Shrine: src/world/shrine.js — mesh + obstacles AABB แยกกัน
+Wire: main.js → CharacterController(terrain, shrine.obstacles), rig.obstacles
+Camera: core/camera.js nearestAabbEntry on socket→eye arm
+อย่า derive collision จาก mesh; stampSnow หลัง terrain.warmUp
+Next optional: altar interaction / shrine VFX / material polish
+อย่า commit package-lock.json หรือ .zcode/
 ```

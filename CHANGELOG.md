@@ -9,7 +9,27 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 
 ## [Unreleased]
 
+**Branch:** `feature/spawn-ruin`
+
 ### Added
+- **Permanent spawn ruin / shrine** รอบจุดเริ่มทุก run
+  - ไฟล์ใหม่: `src/world/shrine.js`
+  - shaders: `src/shaders/shrine.vertex.wgsl`, `shrine.fragment.wgsl`,
+    `shrineDepth.vertex.wgsl`, `shrinePrepass.vertex.wgsl` + register ใน `registry.js`
+  - modular courtyard: approach steps, broken gate, side walls, 5 pillars,
+    tiered altar, rubble — วางบน `terrain.heightAt` จริง
+  - spawn กลางลาน: `SHRINE_SPAWN = { x: 8, z: -6 }`
+  - snow compression หลัง `await terrain.warmUp()` ผ่าน `shrine.stampSnow()`
+  - beauty / cascade shadow / camera-depth prepass ครบ; expose `SNOWFLOW.shrine`
+- **Shrine gameplay collision volumes** (AABB แยกจาก render mesh)
+  - blocker: gate piers, side walls, pillars, altar base
+  - non-block: shallow steps, low rubble, elevated lintel, upper altar tiers
+  - player resolve แกน X แล้ว Z (wall slide) ใน `CharacterController`
+  - constants: `COLLISION_RADIUS` 0.34 · `COLLISION_HEIGHT` 1.55
+- **Shrine camera obstruction**
+  - spring-arm ตัดกับ AABB ชุดเดียวกับ player (`rig.obstacles`)
+  - socket → desired eye, nearest slab entry, retract เร็ว / expand ช้า
+  - คง ground clearance + trauma shake หลัง obstruction solve
 - **Skill bar HUD** (ล่างจอ, วงกลม 5 ช่อง แบบในภาพอ้างอิง)
   - ไฟล์ใหม่: `src/ui/skillBar.js`
   - แสดงสกิล 1–5: Sweep / Ribbon (hold) / Bloom / Crystallize / Vortex
@@ -17,9 +37,23 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
   - `SpellSystem.hudSlots()` สำหรับ snapshot ต่อเฟรม
   - F1 → HUD → **Skill bar** (`S.showSkillBar`)
 
+### Changed
+| ไฟล์ | สาระ |
+|---|---|
+| `src/main.js` | construct shrine, wire obstacles → character + camera, warm-up / stamp / update |
+| `src/character/controller.js` | optional static obstacles + `_resolveObstacles` |
+| `src/core/camera.js` | shoulder socket arm + `nearestAabbEntry` obstruction |
+| `src/shaders/registry.js` | register shrine WGSL programs |
+
 ### Fixed
 - Gameplay hint ยกขึ้นเหนือ skill bar โดยเว้นทั้ง heading และ flow-cost labels (desktop/mobile แยก spacing)
 - Dev server ที่ `localhost` และ `127.0.0.1` เคยเป็น Vite คนละ process; runtime ปัจจุบันรัน instance เดียวแบบ dual-stack (`npm run dev -- --host ::`)
+
+### Notes / risks
+- collision **ไม่** derive จาก mesh triangles หรือ Babylon picking
+- `stampSnow()` ต้องหลัง `terrain.warmUp()` ไม่งั้น brush ถูกล้าง
+- browser WebGPU visual QA ใน in-app browser ยัง best-effort (เคยค้างที่ `creating device`)
+- อย่า stage `package-lock.json` / `.zcode/` กับงาน shrine
 
 ---
 
