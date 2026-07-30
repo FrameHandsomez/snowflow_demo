@@ -10,11 +10,10 @@ import { whenReady, bindMatrixArray } from "../core/gpuUtil.js";
 import { CASCADE_COUNT } from "../render/shadows.js";
 import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
 
-const SHRINE_X = 8;
-const SHRINE_Z = -6;
+export const SHRINE_SPAWN = Object.freeze({ x: 8, z: -6 });
+
 const SHRINE_CASCADES = 2;
-const BASE_RADIUS = 2.7;
-const PILLAR_COUNT = 5;
+const BASE_RADIUS = 7.2;
 
 const _splits = new Vector4();
 const _cameraPos = new Vector3();
@@ -32,8 +31,8 @@ export class SpawnShrine {
         this.sky = sky;
         this.shadows = shadows;
 
-        const y = terrain.heightAt(SHRINE_X, SHRINE_Z);
-        this.mesh = buildMesh(scene, SHRINE_X, y, SHRINE_Z);
+        const y = terrain.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
+        this.mesh = buildMesh(scene, SHRINE_SPAWN.x, y, SHRINE_SPAWN.z);
         this.material = this._makeMaterial();
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 1;
@@ -44,7 +43,6 @@ export class SpawnShrine {
             this.mesh, (cascade) => this._makeDepthMaterial(cascade), SHRINE_CASCADES
         );
 
-        this._deformBase();
         this._pushUniforms(_cameraPos);
     }
 
@@ -146,10 +144,10 @@ export class SpawnShrine {
         }
     }
 
-    _deformBase() {
+    stampSnow() {
         this.terrain.deform.brush(
-            SHRINE_X, SHRINE_Z, BASE_RADIUS + 0.6,
-            -0.12, 0.08, 0.35, 0.5, 0, 1, 0.5
+            SHRINE_SPAWN.x, SHRINE_SPAWN.z, BASE_RADIUS + 0.8,
+            0.14, 0.11, 0.42, 0.5, 0, 1, 0.55
         );
     }
 
@@ -187,20 +185,20 @@ function buildMesh(scene, cx, cy, cz) {
         }
     };
 
-    // An octagonal plinth, represented by tapered perimeter blocks.
+    // An octagonal perimeter leaves a broad, clear courtyard at the spawn point.
     for (let i = 0; i < 8; i++) {
         const a = i * Math.PI / 4;
-        const x = cx + Math.cos(a) * BASE_RADIUS * 0.62;
-        const z = cz + Math.sin(a) * BASE_RADIUS * 0.62;
-        addBox(x - 0.78, cy - 0.24, z - 0.78, x + 0.78, cy + 0.06, z + 0.78);
+        const x = cx + Math.cos(a) * BASE_RADIUS * 0.76;
+        const z = cz + Math.sin(a) * BASE_RADIUS * 0.76;
+        addBox(x - 1.32, cy - 0.32, z - 1.32, x + 1.32, cy + 0.12, z + 1.32);
     }
 
     const pillars = [
-        [-1.65, -1.3, 2.65, 0.30],
-        [1.55, -1.45, 3.35, 0.26],
-        [-1.7, 1.28, 2.05, 0.32],
-        [1.6, 1.4, 2.7, 0.28],
-        [0.15, 1.9, 1.45, 0.35],
+        [-4.65, -3.55, 5.35, 0.52],
+        [4.45, -3.85, 6.45, 0.48],
+        [-4.8, 3.62, 4.25, 0.56],
+        [4.58, 3.9, 5.45, 0.50],
+        [0.45, 5.28, 3.15, 0.60],
     ];
     for (let i = 0; i < pillars.length; i++) {
         const [x, z, height, width] = pillars[i];
@@ -210,8 +208,8 @@ function buildMesh(scene, cx, cy, cz) {
         );
     }
 
-    // Collapsed lintel gives the silhouette an unmistakable ruined structure.
-    addBox(cx - 1.72, cy + 2.28, cz - 1.56, cx + 1.72, cy + 2.62, cz - 0.96);
+    // The fallen lintel spans the south entrance at a scale readable from spawn.
+    addBox(cx - 4.85, cy + 3.25, cz - 5.45, cx + 4.85, cy + 3.88, cz - 4.35);
 
     const vd = new VertexData();
     vd.positions = positions;
