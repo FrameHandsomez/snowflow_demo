@@ -21,22 +21,24 @@ snowflow_demo/
     │   ├── bindings.js     # ★ keybinds 2 slots + localStorage
     │   ├── input.js        # ★ poll keys/mouse → input struct
     │   ├── settings.js     # S + SCHEMA (F1 widgets)
-    │   ├── camera.js       # rig, trauma
+    │   ├── camera.js       # ★ rig, trauma, shrine arm obstruction
     │   └── …
     ├── ui/
     │   ├── overlay.js      # ★ F1 panel (Controls + HUD)
     │   ├── crosshair.js    # ★ reticle + import + color
     │   └── skillBar.js     # ★ bottom spell HUD + responsive hint spacing
     ├── character/
-    │   ├── controller.js   # ★ motion: walk/surf/jump/flip/ollie
+    │   ├── controller.js   # ★ motion + static obstacle resolve
     │   ├── figure.js       # ★ procedural skeleton pose
     │   ├── character.js    # mesh + cloth upload wrapper
     │   ├── snowContact.js  # ★ footprints + jump spray
     │   └── …
+    ├── world/
+    │   └── shrine.js       # ★ permanent spawn ruin + obstacle AABBs
     ├── spells/             # 1–5 abilities (ยัง logic เดิม)
     ├── terrain/            # height + deform
     ├── vfx/                # spray, surf wake
-    └── shaders/            # WGSL
+    └── shaders/            # WGSL (+ shrine*.wgsl)
 ```
 
 ---
@@ -61,6 +63,12 @@ snowflow_demo/
 | Settings ใหม่ใน F1 | `settings.js` `S` + `SCHEMA` | overlay สร้าง widget จาก schema |
 | ข้อความ hint ล่าง | `index.html` `#hint` | |
 | Skill bar ล่างจอ | `src/ui/skillBar.js` + `spells.hudSlots()` | F1 HUD `showSkillBar` | |
+| รูปร่าง / วาง ruin | `src/world/shrine.js` → `buildMesh` / `addModule` | ใช้ `groundAt` จาก terrain |
+| จุด spawn ตอนเข้าเกม | `SHRINE_SPAWN` ใน `shrine.js` + `main.js` | ตอนนี้ `{ x: 8, z: -6 }` |
+| ชนเสา/ผนัง shrine | `shrine.js` `blocksMovement` + `controller.js` `_resolveObstacles` | AABB แยกจาก mesh |
+| กล้องทะลุ ruin | `camera.js` `nearestAabbEntry` + `rig.obstacles` | wire จาก `main.js` |
+| กดหิมะรอบ shrine | `shrine.stampSnow()` หลัง `terrain.warmUp()` | อย่าเรียกก่อน warm-up |
+| material / shadow shrine | `shrine*.wgsl` + `SpawnShrine._makeMaterial` | register ใน `registry.js` |
 | ลำดับระบบต่อเฟรม | `main.js` loop | poll → controller → figure → contact → camera… |
 
 ---
@@ -102,7 +110,29 @@ FLIP_TIME        วินาทีต่อ 1 รอบม้วน (~0.78)
 
 ---
 
-## 4) Input pipeline
+## 4) Spawn ruin / shrine
+
+`src/world/shrine.js` + wire ใน `main.js`
+
+```text
+SpawnShrine
+  mesh          indexed static boxes (beauty / shadow / prepass)
+  obstacles     immutable world AABBs — gameplay only
+  stampSnow()   deform brushes หลัง terrain.warmUp()
+  update()      sky / cascade / spell-light uniforms
+
+SHRINE_SPAWN    { x: 8, z: -6 }  — กลาง courtyard, ทางใต้เปิด
+```
+
+**กฎ**
+- อย่า derive player/camera collision จาก mesh triangles
+- module ที่กันคน: `addModule(..., blocksMovement = true)`
+- camera ใช้ `rig.obstacles = shrine.obstacles` ชุดเดียวกับ controller
+- debug: `SNOWFLOW.shrine.obstacles`, `SNOWFLOW.rig.obstacleDistance`
+
+---
+
+## 5) Input pipeline
 
 ```text
 keydown/mousedown
@@ -125,7 +155,7 @@ endFrame()
 
 ---
 
-## 5) Bindings API ย่อ
+## 6) Bindings API ย่อ
 
 `src/core/bindings.js`
 
@@ -145,7 +175,7 @@ Mouse ใช้โค้ด `Mouse0` / `Mouse1` / `Mouse2`
 
 ---
 
-## 6) Crosshair API ย่อ
+## 7) Crosshair API ย่อ
 
 `src/ui/crosshair.js` + mount ใน `main.js`
 
@@ -167,7 +197,7 @@ Profile เก็บบน disk browser: `snowflow.crosshair.v2`
 
 ---
 
-## 7) Figure pose — จุดต่อ animation
+## 8) Figure pose — จุดต่อ animation
 
 `src/character/figure.js`
 

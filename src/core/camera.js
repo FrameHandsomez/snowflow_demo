@@ -6,8 +6,8 @@
  * character drifts forward in frame. FOV widens with speed, the rig banks into
  * carves, and everything eases. Nothing here snaps.
  *
- * Open snow field, so there is no obstacle collision solve — only the ground
- * itself pushes the arm up, which buys a rig that never pops through a drift.
+ * Static world volumes retract the arm before it clips ruin geometry, while the
+ * terrain sampler pushes it above the snow surface.
  */
 
 import { Vector3, Matrix, Quaternion } from "@babylonjs/core/Maths/math.vector";
@@ -17,6 +17,7 @@ import { input } from "./input.js";
 
 // ------------------------------------------------------- module-scope scratch
 const _pivot = new Vector3();
+const _socket = new Vector3();
 const _desired = new Vector3();
 const _fwd = new Vector3();
 const _right = new Vector3();
@@ -91,6 +92,12 @@ export class CameraRig {
         this.groundClearance = 1.35;
         /** Eased lift currently being applied to stay above the surface. */
         this.groundLift = 0;
+        /** @type {readonly {minX:number, minY:number, minZ:number, maxX:number, maxY:number, maxZ:number}[]} */
+        this.obstacles = [];
+        /** Metres held back from an obstacle face. */
+        this.obstacleClearance = 0.28;
+        /** Smoothed usable arm length after static obstacle blocking. */
+        this.obstacleDistance = this.distance;
 
         this._first = true;
     }
@@ -167,10 +174,11 @@ export class CameraRig {
         this.right.copyFrom(_right);
         this.up.copyFrom(_up);
 
-        _desired.copyFrom(this.pivot);
+        _socket.copyFrom(this.pivot);
+        _socket.addInPlace(_tmp.copyFrom(_right).scaleInPlace(this.shoulder));
+        _socket.addInPlace(_tmp.copyFrom(_up).scaleInPlace(0.22));
+        _desired.copyFrom(_socket);
         _desired.addInPlace(_tmp.copyFrom(_fwd).scaleInPlace(-this.distance));
-        _desired.addInPlace(_tmp.copyFrom(_right).scaleInPlace(this.shoulder));
-        _desired.addInPlace(_tmp.copyFrom(_up).scaleInPlace(0.22));
 
         // ---- keep the arm out of the snow --------------------------------
         // The lift rises quickly and relaxes slowly: snapping down the instant a
@@ -183,9 +191,9 @@ export class CameraRig {
             let need = 0;
             for (let i = 0; i <= ARM_SAMPLES; i++) {
                 const t = i / ARM_SAMPLES;
-                const x = this.pivot.x + (_desired.x - this.pivot.x) * t;
-                const z = this.pivot.z + (_desired.z - this.pivot.z) * t;
-                const y = this.pivot.y + (_desired.y - this.pivot.y) * t;
+                const x = _socket.x + (_desired.x - _socket.x) * t;
+                const z = _socket.z + (_desired.z - _socket.z) * t;
+                const y = _socket.y + (_desired.y - _socket.y) * t;
                 // Clearance eases in along the arm so it does not shove the
                 // camera up merely for being near the player's own feet.
                 const gh = this.groundAt(x, z) + this.groundClearance * (0.35 + 0.65 * t);
@@ -197,6 +205,35 @@ export class CameraRig {
                 this.groundLift, need, need > this.groundLift ? 26 : 4.5, dt
             );
             _desired.y += this.groundLift;
+        }
+
+        // Keep the unshaken spring arm out of solid world structure. The
+        // controller supplies the same explicit AABBs used for player movement.
+        const armX = _desired.x - _socket.x;
+        const armY = _desired.y - _socket.y;
+        const armZ = _desired.z - _socket.z;
+        const armLength = Math.hypot(armX, armY, armZ);
+        let clearDistance = armLength;
+        if (armLength > 0.001) {
+            const hit = nearestAabbEntry(
+                _socket.x, _socket.y, _socket.z, armX, armY, armZ, this.obstacles
+            );
+            if (hit !== null) {
+                clearDistance = Math.max(0, armLength * hit - this.obstacleClearance);
+            }
+        }
+        const retractRate = clearDistance < this.obstacleDistance ? 28 : 6;
+        this.obstacleDistance = Math.min(
+            clearDistance,
+            expDamp(this.obstacleDistance, clearDistance, retractRate, dt)
+        );
+        if (armLength > 0.001 && this.obstacleDistance < armLength) {
+            const scale = this.obstacleDistance / armLength;
+            _desired.set(
+                _socket.x + armX * scale,
+                _socket.y + armY * scale,
+                _socket.z + armZ * scale
+            );
         }
 
         if (shake > 0.0001) {
@@ -233,6 +270,51 @@ export class CameraRig {
 /** Framerate-independent exponential approach. */
 export function expDamp(cur, target, rate, dt) {
     return target + (cur - target) * Math.exp(-rate * dt);
+}
+
+/**
+ * Returns the first 0..1 segment entry into any volume, or null. Starting
+ * inside a volume is ignored because retracting from an invalid arm socket
+ * would turn into a visible camera snap.
+ */
+function nearestAabbEntry(ox, oy, oz, dx, dy, dz, obstacles) {
+    let nearest = null;
+    for (let i = 0; i < obstacles.length; i++) {
+        const o = obstacles[i];
+        let near = -Infinity;
+        let far = Infinity;
+        let t0;
+        let t1;
+
+        if (Math.abs(dx) < 0.000001) {
+            if (ox < o.minX || ox > o.maxX) continue;
+        } else {
+            t0 = (o.minX - ox) / dx;
+            t1 = (o.maxX - ox) / dx;
+            near = Math.max(near, Math.min(t0, t1));
+            far = Math.min(far, Math.max(t0, t1));
+        }
+        if (Math.abs(dy) < 0.000001) {
+            if (oy < o.minY || oy > o.maxY) continue;
+        } else {
+            t0 = (o.minY - oy) / dy;
+            t1 = (o.maxY - oy) / dy;
+            near = Math.max(near, Math.min(t0, t1));
+            far = Math.min(far, Math.max(t0, t1));
+        }
+        if (Math.abs(dz) < 0.000001) {
+            if (oz < o.minZ || oz > o.maxZ) continue;
+        } else {
+            t0 = (o.minZ - oz) / dz;
+            t1 = (o.maxZ - oz) / dz;
+            near = Math.max(near, Math.min(t0, t1));
+            far = Math.min(far, Math.max(t0, t1));
+        }
+        if (near > 0 && near <= far && near <= 1 && (nearest === null || near < nearest)) {
+            nearest = near;
+        }
+    }
+    return nearest;
 }
 
 /**

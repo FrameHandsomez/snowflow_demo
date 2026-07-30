@@ -34,6 +34,7 @@ import { ShadowSystem } from "./render/shadows.js";
 import { Terrain } from "./terrain/terrain.js";
 import { DepthPass } from "./render/depthPass.js";
 import { PostChain } from "./post/postChain.js";
+import { SpawnShrine, SHRINE_SPAWN } from "./world/shrine.js";
 import { whenReady } from "./core/gpuUtil.js";
 import * as loading from "./core/loading.js";
 
@@ -124,11 +125,15 @@ async function boot() {
     onChange("showTerrain", (v) => (terrain.mesh.isVisible = v));
     depthPass.registerCaster(terrain.mesh, terrain.makePrepassMaterial());
 
+    // A permanent ruin surrounds the player at the start of every run.
+    const shrine = new SpawnShrine(scene, terrain, sky, shadows);
+    shrine.registerPrepass(depthPass);
+
     await loading.phase("placing character", 0.62);
 
-    const character = new CharacterController(terrain);
-    character.position.set(0, 0, 0);
-    character.position.y = terrain.heightAt(0, 0);
+    const character = new CharacterController(terrain, shrine.obstacles);
+    character.position.set(SHRINE_SPAWN.x, 0, SHRINE_SPAWN.z);
+    character.position.y = terrain.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
 
     // The figure: skeleton, garment simulation, shell fur.
     const figure = new Character(scene, terrain, sky, shadows, character);
@@ -159,8 +164,9 @@ async function boot() {
     );
     spells.registerPrepass(depthPass);
 
-    // The rig needs ground heights to keep the spring arm above the snow.
+    // The rig needs ground heights and shrine volumes to keep the spring arm clear.
     rig.groundAt = (x, z) => terrain.heightAt(x, z);
+    rig.obstacles = shrine.obstacles;
 
     const post = new PostChain(scene, rig.camera, depthPass, sky);
 
@@ -175,10 +181,13 @@ async function boot() {
     shadows.update(rig.camera, sky.sunDir);
     sky.render(rig, 0);
     await terrain.warmUp();
+    shrine.stampSnow();
     terrain.update(rig.camera.position, character.position, 0);
     figure.update(0);
     figure.sync(rig.camera.position);
     await figure.warmUp();
+    shrine.update(rig.camera.position, spells.lights);
+    await shrine.warmUp();
     spray.update(0, rig.camera.position);
     await spray.warmUp();
     await wake.warmUp();
@@ -247,6 +256,7 @@ async function boot() {
         // cascade matrices; before the terrain, so the brushes every spell
         // writes are in the staging array when the simulation pass runs.
         spells.update(dt, rig.camera.position);
+        shrine.update(rig.camera.position, spells.lights);
         const tSpells = performance.now();
         terrain.update(rig.camera.position, character.position, dt);
         const tTerrain = performance.now();
@@ -291,7 +301,7 @@ async function boot() {
     setTimeout(() => overlay.resetSpikes(), 800);
 
     globalThis.SNOWFLOW = {
-        engine, scene, rig, character, figure, contact, spray, wake, spells,
+        engine, scene, rig, character, figure, contact, spray, wake, spells, shrine,
         overlay, crosshair, skillBar, terrain, sky, shadows, post, depthPass,
         S, input, perfStats: stats,
     };
