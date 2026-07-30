@@ -74,8 +74,61 @@ export class SnowContact {
         this._prevX = ch.position.x;
         this._prevZ = ch.position.z;
 
-        if (ch.surf > 0.02) this._surf(dt, moved);
-        if (ch.surf < 0.98) this._walk(dt, moved);
+        const airborne = (ch.air || 0) > 0.4 || ch.grounded === false;
+
+        if (!airborne) {
+            if (ch.surf > 0.02) this._surf(dt, moved);
+            if (ch.surf < 0.98) this._walk(dt, moved);
+        }
+
+        // Jump takeoff burst — ground hop, double, or surf ollie each read different.
+        if (ch.jumpPulse > 0.05) {
+            const kind = ch.jumpKind | 0;
+            const impact =
+                kind === 3 ? 1.15 + ch.speed01 * 0.5 :
+                kind === 2 ? 0.85 :
+                0.55 + ch.jumpPulse * 0.35;
+            if (kind === 3 || !airborne || ch.jumpPulse > 0.5) {
+                // Ollie carves a wider launch print; air double skips the brush.
+                if (kind !== 2) {
+                    f.brush(
+                        ch.position.x, ch.position.z,
+                        BOOT_WIDTH * (kind === 3 ? 1.55 : 1.1),
+                        0.16 + 0.22 * impact,
+                        0.12 + 0.14 * impact,
+                        kind === 3 ? 1.0 : 0.85,
+                        0,
+                        ch.facing,
+                        BOOT_ELONG * (kind === 3 ? 1.4 : 1.0),
+                        1.0
+                    );
+                }
+            }
+            this._burst(
+                ch.position.x,
+                ch.position.y + (kind === 2 ? 0.35 : 0.05),
+                ch.position.z,
+                impact,
+                kind
+            );
+        }
+
+        // Landing from a jump: one heavier dual-boot splat under the body.
+        if (ch.landPulse > 0.08) {
+            const impact = Math.min(1.4, 0.55 + ch.landPulse);
+            f.brush(
+                ch.position.x, ch.position.z,
+                BOOT_WIDTH * 1.15,
+                0.20 + 0.18 * impact,
+                0.12 + 0.10 * impact,
+                0.95,
+                0,
+                ch.facing,
+                BOOT_ELONG * 1.1,
+                1.0
+            );
+            this._kick(ch.position.x, ch.position.y, ch.position.z, impact);
+        }
 
         // Footfalls fire regardless of mode; the gait suppresses them while
         // surfing because the feet are on the board.
@@ -133,7 +186,7 @@ export class SnowContact {
         const sp = this.spray;
         if (!sp) return;
         const ch = this.character;
-        if (ch.speed < 0.4) return;
+        if (ch.speed < 0.4 && impact < 0.7) return;
 
         const fx = Math.sin(ch.facing);
         const fz = Math.cos(ch.facing);
@@ -158,6 +211,52 @@ export class SnowContact {
                 -fz * back + rz * 1.3 + ch.velocity.z * 0.25,
                 clod ? 0.014 + Math.random() * 0.012 : 0.020 + Math.random() * 0.030,
                 clod ? 0.55 + Math.random() * 0.35 : 0.55 + Math.random() * 0.60,
+                clod
+            );
+        }
+    }
+
+    /**
+     * Jump / ollie / flip takeoff spray. Separate from `_kick` so a standing hop
+     * still throws powder, and a double jump throws a mid-air ring.
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @param {number} impact
+     * @param {number} kind 1 ground · 2 double · 3 surf
+     */
+    _burst(x, y, z, impact, kind) {
+        const sp = this.spray;
+        if (!sp) return;
+        const ch = this.character;
+        const fx = Math.sin(ch.facing);
+        const fz = Math.cos(ch.facing);
+        const n =
+            kind === 3 ? 18 + ((impact * 20) | 0) :
+            kind === 2 ? 10 + ((impact * 10) | 0) :
+            8 + ((impact * 12) | 0);
+
+        for (let k = 0; k < n; k++) {
+            const ang = (k / n) * Math.PI * 2 + Math.random() * 0.4;
+            const rad = kind === 2 ? 0.8 + Math.random() * 1.4 : 0.4 + Math.random() * 1.2;
+            const ox = Math.cos(ang) * rad;
+            const oz = Math.sin(ang) * rad;
+            const up =
+                kind === 2 ? 1.6 + Math.random() * 2.4 :
+                kind === 3 ? 1.4 + Math.random() * 2.8 + ch.speed01 * 1.5 :
+                1.1 + Math.random() * 2.0;
+            const along = kind === 3 ? 1.5 + ch.speed01 * 2.5 : 0.4;
+            const clod = Math.random() < (kind === 3 ? 0.35 : 0.2) ? 1 : 0;
+
+            sp.emit(
+                x + ox * 0.12,
+                y + 0.04 + Math.random() * 0.08,
+                z + oz * 0.12,
+                ox * (0.9 + impact) + fx * along + ch.velocity.x * 0.2,
+                up,
+                oz * (0.9 + impact) + fz * along + ch.velocity.z * 0.2,
+                clod ? 0.016 + Math.random() * 0.014 : 0.018 + Math.random() * 0.028,
+                clod ? 0.5 + Math.random() * 0.4 : 0.5 + Math.random() * 0.7,
                 clod
             );
         }

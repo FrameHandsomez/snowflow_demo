@@ -219,6 +219,16 @@ export class Figure {
         this.armPhase = 0;
         /** How far the figure has settled into the snow, metres. */
         this.sink = 0.04;
+        /** Landing crouch recover, metres of extra hip drop. */
+        this.landSquash = 0;
+        /** Jump takeoff stretch, metres. */
+        this.jumpStretch = 0;
+        /** Smoothed flip tuck 0..1 for limbs (peaks mid-spin). */
+        this.flipTuckSm = 0;
+        /** Last frame airborne — used to snap feet off the plant on takeoff. */
+        this._wasAirborne = false;
+        /** Last frame flipping — snap into ball tuck the instant spin starts. */
+        this._wasFlipping = false;
 
         this._t = 0;
         this._prevGait = 0;
@@ -234,69 +244,124 @@ export class Figure {
         this._t += h;
 
         const surf = ch.surf;
+        const air = ch.air || 0;
+        const flipAngle = ch.flipAngle || 0;
+        const flipTuck = ch.flipTuck || 0;
+        const flipping = !!ch.flipping || flipAngle > 0.05;
+        const surfAir = ch.surfAir || 0;
+        const olliePhase = ch.olliePhase || 0;
+        const ollie = Math.max(surfAir, olliePhase > 0.01 ? 1 : 0) * (flipping ? 0 : 1);
         const speed = ch.speed;
         const run = Math.min(1, speed / 5.4);
-
-        // ---------------------------------------------------------- footfalls
-        // Stance/swing is derived from the same distance-driven phase the
-        // controller uses to fire footfall events, so the visual plant and the
-        // snow splat are the same instant by construction.
-        this._updateFeet(h, ch);
+        const grounded = ch.grounded !== false && air < 0.55;
+        // Flip always reads as a ball tuck — layout (straight body) is what made
+        // mid-air frames look like a floating corpse in the screenshots.
+        this.flipTuckSm = flipping
+            ? damp(this.flipTuckSm, Math.max(flipTuck, 0.55), 28, h)
+            : damp(this.flipTuckSm, 0, 18, h);
 
         // -------------------------------------------------------- body attitude
-        // Lean forward with speed, and *into* acceleration — the classic read
-        // that a figure is pushing rather than being dragged.
+        // Attitude first, then feet in that body frame — otherwise a flip leaves
+        // ankles planted in the world while the torso spins (reads as a gag).
         const fwdAcc =
             ch.acceleration.x * Math.sin(ch.facing) + ch.acceleration.z * Math.cos(ch.facing);
-        // Clamped, because the accelerations at either end of a surf run are an
-        // order of magnitude larger than anything walking produces: letting go at
-        // top speed decelerates at 30 m/s^2, which unclamped throws the torso
-        // twenty degrees backwards and reads as a fall rather than as a scrub.
+
+        // Ollie: short board hop — nose pop then level then toes-down. Never layout.
+        let olliePitch = 0;
+        let ollieCrouch = 0;
+        if (ollie > 0.05) {
+            const p = olliePhase;
+            if (p < 0.28) {
+                const t = p / 0.28;
+                olliePitch = -0.16 * t;          // small nose-up (not a dive)
+                ollieCrouch = 0.12 * (1 - t);
+            } else if (p < 0.72) {
+                const t = (p - 0.28) / 0.44;
+                olliePitch = -0.16 * (1 - t) + 0.04 * t;
+                ollieCrouch = 0.04;
+            } else {
+                const t = (p - 0.72) / 0.28;
+                olliePitch = 0.04 + 0.10 * t;
+                ollieCrouch = 0.04 + 0.10 * t;
+            }
+            olliePitch *= clamp(surfAir, 0, 1);
+            ollieCrouch *= clamp(surfAir, 0, 1);
+        }
+
+        // Kill surf lean in the air so an ollie stays board-upright, not belly-flat.
+        const airPitch =
+            air * (1 - this.flipTuckSm) * (1 - ollie * 0.9) * (ch.velY > 0.4 ? -0.04 : 0.08);
+        const surfPitch =
+            surf * (0.30 + 0.16 * ch.speed01) * (1 - ollie * 0.75) * (1 - air * 0.85);
         const pitchWant =
-            0.10 * run
-            + 0.012 * clamp(fwdAcc, -9, 22)
-            + surf * (0.30 + 0.16 * ch.speed01);
-        this.pitch = damp(this.pitch, pitchWant, 7, h);
+            0.10 * run * (1 - air)
+            + 0.012 * clamp(fwdAcc, -9, 22) * (1 - air * 0.7)
+            + surfPitch
+            + airPitch
+            + olliePitch;
+        // Snappier pitch while flipping/ollie so attitude doesn't lag a half-turn.
+        const pitchRate = flipping ? 18 : ollie > 0.2 ? 14 : 7;
+        this.pitch = damp(this.pitch, pitchWant, pitchRate, h);
+        // Flip spin is pure body rotation on top of a compact base pitch.
+        const rootPitch = flipping
+            ? this.pitch * 0.25 + flipAngle
+            : this.pitch;
 
-        const rollWant = ch.lean * (0.16 + 0.34 * surf);
-        this.roll = damp(this.roll, rollWant, 8, h);
+        // Ollie inherits carve lean; flip stays neutral so the spin axis is clean.
+        const rollWant = flipping
+            ? 0
+            : ch.lean * (0.16 + 0.34 * surf) + ollie * ch.lean * 0.28;
+        this.roll = damp(this.roll, rollWant, flipping ? 10 : 8, h);
 
-        // Vertical bob: the pelvis drops through each stance and rises over the
-        // supporting leg, twice per stride. Suppressed while surfing, where the
-        // stance is a static crouch.
         const bobWant =
-            (1 - surf) * (-0.028 * run * (0.5 - 0.5 * Math.cos(4 * Math.PI * ch.gaitPhase)));
+            (1 - surf) * (1 - air) * (-0.028 * run * (0.5 - 0.5 * Math.cos(4 * Math.PI * ch.gaitPhase)));
         this.bob = damp(this.bob, bobWant, 18, h);
 
-        // Crouch: a little at running speed, a lot on the board.
-        const crouch = 0.035 * run + surf * (0.13 + 0.05 * ch.speed01);
-        this.hipY = damp(this.hipY, HIP_HEIGHT - crouch, 9, h);
+        if (ch.jumpPulse > 0.01) {
+            const mul = ch.jumpKind === 2 ? 1.1 : ch.jumpKind === 3 ? 1.25 : 1;
+            this.jumpStretch = Math.max(this.jumpStretch, 0.055 * ch.jumpPulse * mul);
+        }
+        if (ch.landPulse > 0.01) this.landSquash = Math.max(this.landSquash, 0.11 * ch.landPulse);
+        this.jumpStretch = damp(this.jumpStretch, 0, 9, h);
+        this.landSquash = damp(this.landSquash, 0, 7, h);
 
-        // The figure settles into the snow it is standing on. Reading the real
-        // depth would mean a GPU readback; this is the same number the contact
-        // brushes are writing, held on the CPU.
-        this.sink = damp(this.sink, 0.045 + surf * 0.055, 4, h);
+        const crouch =
+            0.035 * run
+            + surf * (0.13 + 0.05 * ch.speed01) * (1 - ollie * 0.5)
+            + this.landSquash
+            + air * 0.03 * (1 - ollie)
+            // Deep ball during flip — hips pull toward knees.
+            + this.flipTuckSm * 0.38
+            + ollieCrouch;
+        this.hipY = damp(
+            this.hipY,
+            HIP_HEIGHT - crouch + this.jumpStretch * (1 - air * 0.25),
+            flipping ? 16 : 10,
+            h
+        );
+
+        const sinkWant = grounded ? 0.045 + surf * 0.055 : 0;
+        this.sink = damp(this.sink, sinkWant, grounded ? 4 : 10, h);
 
         // ------------------------------------------------------------- spine
         const gx = ch.position.x;
         const gz = ch.position.z;
-        const groundY = this.terrain.heightAt(gx, gz);
+        const rootY = ch.position.y - this.sink + this.hipY + this.bob;
 
-        const rootY = groundY - this.sink + this.hipY + this.bob;
-
-        composeBasis(ch.facing, this.pitch, this.roll);
+        composeBasis(ch.facing, rootPitch, this.roll);
         const rX = _axes[0], rY = _axes[1], rZ = _axes[2];
         const uX = _axes[3], uY = _axes[4], uZ = _axes[5];
         const fX = _axes[6], fY = _axes[7], fZ = _axes[8];
 
-        // Pelvis. Its yaw counter-rotates against the shoulders during a stride,
-        // which is most of what stops a procedural walk reading as a shop dummy.
-        const twist = (1 - surf) * 0.13 * run * Math.sin(2 * Math.PI * ch.gaitPhase);
-        composeBasis(ch.facing + twist, this.pitch, this.roll);
+        // Feet need the body frame of this pose — resolve after basis exists.
+        this._updateFeet(h, ch, rX, rY, rZ, uX, uY, uZ, fX, fY, fZ, rootY);
+
+        const twist =
+            (1 - surf) * (1 - air) * (1 - this.flipTuckSm) * (1 - ollie) *
+            0.13 * run * Math.sin(2 * Math.PI * ch.gaitPhase);
+        composeBasis(ch.facing + twist, rootPitch, this.roll);
         this._setBone(B_ROOT, gx, rootY, gz, _axes[3], _axes[4], _axes[5], _axes[6], _axes[7], _axes[8]);
 
-        // Spine and chest lift along the pelvis up-axis, with the chest twisting
-        // the opposite way and leaning a little further forward.
         const spineY = rootY + uY * 0.11;
         this._setBone(
             B_SPINE, gx + uX * 0.11, spineY, gz + uZ * 0.11,
@@ -304,8 +369,12 @@ export class Figure {
         );
 
         const chestTwist = -twist * 1.5;
-        const chestPitch = this.pitch + 0.05 * run + surf * 0.10;
-        composeBasis(ch.facing + chestTwist, chestPitch, this.roll * 1.15);
+        // Flip: chest locked to root (tucked). Ollie: a little more board lean.
+        // Walk/surf: usual extra pitch on the chest.
+        const chestPitch = flipping
+            ? rootPitch + this.flipTuckSm * 0.18
+            : this.pitch + 0.05 * run + surf * 0.10 + ollie * olliePitch * 0.35;
+        composeBasis(ch.facing + chestTwist, chestPitch, this.roll * (flipping ? 0.4 : 1.15));
         const cUx = _axes[3], cUy = _axes[4], cUz = _axes[5];
         const cFx = _axes[6], cFy = _axes[7], cFz = _axes[8];
         const cRx = _axes[0], cRy = _axes[1], cRz = _axes[2];
@@ -317,18 +386,28 @@ export class Figure {
         this._setBone(B_NECK, neckX, neckY, neckZ, cUx, cUy, cUz, cFx, cFy, cFz);
 
         // ------------------------------------------------------------- head
-        // Head stabilisation: the head stays much closer to level than the chest
-        // it sits on. Real necks do this and it is very obvious when missing.
-        this.headPitch = damp(this.headPitch, -chestPitch * 0.62 + surf * 0.10, 9, h);
-        this.headYaw = damp(this.headYaw, ch.lean * -0.22, 6, h);
-        composeBasis(ch.facing + chestTwist + this.headYaw, chestPitch + this.headPitch, this.roll * 0.5);
+        // Flip: chin tucked. Ollie: eyes toward landing. Else: stabilise vs chest.
+        let headWant;
+        if (flipping) headWant = this.flipTuckSm * 0.45;
+        else if (ollie > 0.2) headWant = -chestPitch * 0.35 + (ch.velY < 0 ? 0.12 : -0.05);
+        else headWant = -chestPitch * 0.62 + surf * 0.10;
+        this.headPitch = damp(this.headPitch, headWant, flipping ? 16 : 9, h);
+        this.headYaw = damp(this.headYaw, flipping ? 0 : ch.lean * -0.22, 6, h);
+        composeBasis(
+            ch.facing + chestTwist + this.headYaw,
+            flipping ? rootPitch + this.headPitch : chestPitch + this.headPitch,
+            this.roll * 0.5
+        );
         const headX = neckX + cUx * 0.09, headY = neckY + cUy * 0.09, headZ = neckZ + cUz * 0.09;
         this._setBone(B_HEAD, headX, headY, headZ, _axes[3], _axes[4], _axes[5], _axes[6], _axes[7], _axes[8]);
 
-        // The hood is a lagged copy. A hood that tracks the skull exactly reads
-        // as a helmet; a few frames of lag reads as fabric.
         this.hoodYaw = damp(this.hoodYaw, ch.facing + chestTwist + this.headYaw, 11, h);
-        this.hoodPitch = damp(this.hoodPitch, chestPitch + this.headPitch + 0.05, 9, h);
+        this.hoodPitch = damp(
+            this.hoodPitch,
+            (flipping ? rootPitch : chestPitch) + this.headPitch + 0.05,
+            flipping ? 14 : 9,
+            h
+        );
         composeBasis(this.hoodYaw, this.hoodPitch, this.roll * 0.5);
         this._setBone(B_HOOD, headX, headY, headZ, _axes[3], _axes[4], _axes[5], _axes[6], _axes[7], _axes[8]);
 
@@ -361,8 +440,23 @@ export class Figure {
      * and read unchanged for the rest of the stance — so no amount of body
      * motion, camera motion or frame-rate variation can move a planted foot.
      */
-    _updateFeet(h, ch) {
+    /**
+     * @param {number} h
+     * @param {import("./controller.js").CharacterController} ch
+     * @param {number} [rX] body right — required for airborne body-local feet
+     * @param {number} [rY]
+     * @param {number} [rZ]
+     * @param {number} [uX] body up
+     * @param {number} [uY]
+     * @param {number} [uZ]
+     * @param {number} [fX] body forward
+     * @param {number} [fY]
+     * @param {number} [fZ]
+     * @param {number} [rootY] pelvis world Y
+     */
+    _updateFeet(h, ch, rX, rY, rZ, uX, uY, uZ, fX, fY, fZ, rootY) {
         const surf = ch.surf;
+        const air = ch.air || 0;
         const speed = ch.speed;
         const run = Math.min(1, speed / 5.4);
         // Duty factor: a walk keeps both feet down for a moment, a run has a
@@ -370,8 +464,10 @@ export class Figure {
         // from walk to run read as a gait change and not a speed change.
         const duty = 0.66 - 0.20 * run;
 
-        const fwdX = Math.sin(ch.facing), fwdZ = Math.cos(ch.facing);
-        const rgtX = Math.cos(ch.facing), rgtZ = -Math.sin(ch.facing);
+        const flatFwdX = Math.sin(ch.facing), flatFwdZ = Math.cos(ch.facing);
+        const flatRgtX = Math.cos(ch.facing), flatRgtZ = -Math.sin(ch.facing);
+        // Fall back to flat facing if called without a body frame (shouldn't happen).
+        const hasBody = rX !== undefined && uX !== undefined && fX !== undefined;
 
         // Half a stride ahead, scaled by speed — this is the step length, and it
         // has to match the controller's stride or the feet skate.
@@ -380,16 +476,88 @@ export class Figure {
         // it from `surf` here is how the feet and the footprints end up
         // disagreeing about whether the character is walking.
         const moving = speed > 0.2 && ch.stepping;
+        const airborne = air > 0.45 || ch.grounded === false;
+        const flipping = !!ch.flipping || (ch.flipAngle || 0) > 0.05;
+        const surfAir = ch.surfAir || 0;
+        const olliePhase = ch.olliePhase || 0;
+        const tuckAmt = this.flipTuckSm || ch.flipTuck || 0;
 
         for (let f = 0; f < 2; f++) {
             const side = f === 0 ? -0.105 : 0.105;
             // Left foot leads; the right is half a cycle behind.
             const ph = (ch.gaitPhase + (f === 0 ? 0 : 0.5)) % 1;
-            const stance = !moving || ph < duty;
+            const stance = !airborne && (!moving || ph < duty);
 
             // Where this foot would land if it touched down right now.
-            const nx = ch.position.x + fwdX * half + rgtX * side;
-            const nz = ch.position.z + fwdZ * half + rgtZ * side;
+            const nx = ch.position.x + flatFwdX * half + flatRgtX * side;
+            const nz = ch.position.z + flatFwdZ * half + flatRgtZ * side;
+
+            if (airborne) {
+                // Body-local feet. World-plant lag during spin = stretched corpse pose.
+                this.touchdown[f] = false;
+                let along, lateral, down;
+                if (flipping) {
+                    // Ball tuck: knees to chest, feet close under the torso.
+                    // Negative "down" pulls ankles *up* the body axis toward the chest.
+                    const t = Math.max(tuckAmt, 0.55);
+                    along = f === 0 ? -0.02 - t * 0.10 : -0.10 - t * 0.12;
+                    lateral = f === 0 ? -0.05 : 0.05;
+                    down = 0.10 - t * 0.28; // ~-0.05 at peak → ankles near chest
+                } else if (surfAir > 0.15) {
+                    // Ollie: board under hips, never layout. Pop → float → land.
+                    const p = olliePhase;
+                    lateral = f === 0 ? -0.14 : 0.14;
+                    if (p < 0.3) {
+                        along = f === 0 ? 0.10 : -0.16;
+                        down = f === 0 ? 0.11 : 0.18; // back foot loads the tail
+                    } else if (p < 0.75) {
+                        along = f === 0 ? 0.10 : -0.10;
+                        down = 0.13;
+                    } else {
+                        along = f === 0 ? 0.07 : -0.07;
+                        down = 0.15 + (p - 0.75) * 0.10;
+                    }
+                } else {
+                    // Plain jump: hang under hips, knees soft — never full extension.
+                    along = f === 0 ? 0.04 : -0.02;
+                    lateral = f === 0 ? -0.08 : 0.08;
+                    down = ch.velY > 0 ? 0.22 : 0.26;
+                }
+
+                let sx, sy, sz;
+                if (hasBody) {
+                    const py = rootY !== undefined ? rootY : ch.position.y + 0.95;
+                    sx = ch.position.x + fX * along + rX * lateral - uX * down;
+                    sy = py + fY * along + rY * lateral - uY * down;
+                    sz = ch.position.z + fZ * along + rZ * lateral - uZ * down;
+                } else {
+                    sx = ch.position.x + flatFwdX * along + flatRgtX * lateral;
+                    sz = ch.position.z + flatFwdZ * along + flatRgtZ * lateral;
+                    sy = ch.position.y + 0.08 + (0.35 - down);
+                }
+
+                const o = f * 3;
+                // Snap off the ground plant the moment we leave snow / start a flip.
+                // Damping from plant → body target is what produced the corpse pose.
+                const justAir = !this._wasAirborne;
+                const justFlip = flipping && !this._wasFlipping;
+                if (justAir || justFlip) {
+                    this.footPos[o] = sx;
+                    this.footPos[o + 1] = sy;
+                    this.footPos[o + 2] = sz;
+                } else {
+                    const rate = flipping ? 40 : surfAir > 0.15 ? 22 : 14;
+                    this.footPos[o] = damp(this.footPos[o], sx, rate, h);
+                    this.footPos[o + 1] = damp(this.footPos[o + 1], sy, rate, h);
+                    this.footPos[o + 2] = damp(this.footPos[o + 2], sz, rate, h);
+                }
+                const wantW = flipping ? 0 : surfAir > 0.2 ? 0.55 : 0;
+                this.footWeight[f] = justAir || justFlip
+                    ? wantW
+                    : damp(this.footWeight[f], wantW, 18, h);
+                this._wasStance[f] = false;
+                continue;
+            }
 
             if (stance) {
                 if (!this._wasStance[f]) {
@@ -405,8 +573,8 @@ export class Figure {
                 if (!moving) {
                     // Standing: ease the feet back under the hips rather than
                     // leaving them wherever the last stride dropped them.
-                    const sx = ch.position.x + rgtX * side + fwdX * 0.02;
-                    const sz = ch.position.z + rgtZ * side + fwdZ * 0.02;
+                    const sx = ch.position.x + flatRgtX * side + flatFwdX * 0.02;
+                    const sz = ch.position.z + flatRgtZ * side + flatFwdZ * 0.02;
                     this.plant[f * 3] = damp(this.plant[f * 3], sx, 7, h);
                     this.plant[f * 3 + 2] = damp(this.plant[f * 3 + 2], sz, 7, h);
                     this.plant[f * 3 + 1] = damp(
@@ -440,14 +608,14 @@ export class Figure {
 
         // Surfing: both feet ride the board, offset along the body's long axis
         // and rotated across the direction of travel. Blended in, never snapped.
-        if (surf > 0.001) {
+        if (surf > 0.001 && !airborne) {
             for (let f = 0; f < 2; f++) {
                 // Wide and staggered: feet apart across the direction of travel
                 // for lateral stability, with the leading foot a little ahead.
                 const lateral = f === 0 ? -0.17 : 0.17;
                 const along = f === 0 ? 0.11 : -0.11;
-                const sx = ch.position.x + fwdX * along + rgtX * lateral;
-                const sz = ch.position.z + fwdZ * along + rgtZ * lateral;
+                const sx = ch.position.x + flatFwdX * along + flatRgtX * lateral;
+                const sz = ch.position.z + flatFwdZ * along + flatRgtZ * lateral;
                 const sy = this.terrain.heightAt(sx, sz) - this.sink;
                 const o = f * 3;
                 this.footPos[o] += (sx - this.footPos[o]) * surf;
@@ -456,6 +624,9 @@ export class Figure {
                 this.footWeight[f] = Math.max(this.footWeight[f], surf);
             }
         }
+
+        this._wasAirborne = airborne;
+        this._wasFlipping = flipping;
     }
 
     /**
@@ -516,8 +687,19 @@ export class Figure {
      */
     _poseArms(h, ch, cx, cy, cz, rX, rY, rZ, uX, uY, uZ, fX, fY, fZ) {
         const surf = ch.surf;
+        const air = ch.air || 0;
+        const tuckAmt = this.flipTuckSm || ch.flipTuck || 0;
+        const flipping = !!ch.flipping || (ch.flipAngle || 0) > 0.05;
+        const surfAir = ch.surfAir || 0;
+        const olliePhase = ch.olliePhase || 0;
         const run = Math.min(1, ch.speed / 5.4);
-        const swing = Math.sin(2 * Math.PI * ch.gaitPhase) * (0.20 + 0.42 * run) * (1 - surf);
+        const swing =
+            Math.sin(2 * Math.PI * ch.gaitPhase) *
+            (0.20 + 0.42 * run) *
+            (1 - surf) *
+            (1 - air) *
+            (1 - tuckAmt) *
+            (1 - surfAir);
         // Slow idle drift so a standing figure is never perfectly still.
         const idle = Math.sin(this._t * 0.9) * 0.02 + Math.sin(this._t * 1.7 + 1.3) * 0.012;
 
@@ -543,6 +725,47 @@ export class Figure {
             let ty = _sh[1] + fY * (sw * 0.38) - uY * 0.43 + rY * (sgn * 0.11);
             let tz = _sh[2] + fZ * (sw * 0.38) - uZ * 0.43 + rZ * (sgn * 0.11);
             ty += idle * sgn;
+
+            // ---- flip tuck: arms hug shins hard in the CHEST frame ------------
+            if (flipping) {
+                const t = Math.max(tuckAmt, 0.55);
+                const grab = Math.min(1, 0.55 + t * 0.45);
+                // Hands low on the chest axis — ball shape, not T-pose mid-spin.
+                const hx = _sh[0] + fX * (0.02 - t * 0.06) - uX * (0.18 + t * 0.28) + rX * (sgn * 0.04);
+                const hy = _sh[1] + fY * (0.02 - t * 0.06) - uY * (0.18 + t * 0.28) + rY * (sgn * 0.04);
+                const hz = _sh[2] + fZ * (0.02 - t * 0.06) - uZ * (0.18 + t * 0.28) + rZ * (sgn * 0.04);
+                tx += (hx - tx) * grab;
+                ty += (hy - ty) * grab;
+                tz += (hz - tz) * grab;
+            } else if (surfAir > 0.12) {
+                // ---- ollie arms: natural board balance, not a T-pose ----------
+                // Pop: arms swing up a little for lift. Float: out for balance.
+                // Land: come back in.
+                const p = olliePhase;
+                const bal = Math.min(1, 0.55 + surfAir * 0.45);
+                let up = 0.06, out = 0.18, fwd = 0.10;
+                if (p < 0.3) {
+                    up = 0.16; out = 0.14; fwd = 0.06; // pump
+                } else if (p < 0.75) {
+                    up = 0.08; out = 0.24; fwd = 0.12; // balance
+                } else {
+                    up = 0.02; out = 0.12; fwd = 0.08; // settle
+                }
+                // Lead hand a touch more forward (right = a===1).
+                if (a === 1) fwd += 0.04;
+                else fwd -= 0.02;
+                const ox = _sh[0] + fX * fwd + uX * up + rX * (sgn * out);
+                const oy = _sh[1] + fY * fwd + uY * up + rY * (sgn * out);
+                const oz = _sh[2] + fZ * fwd + uZ * up + rZ * (sgn * out);
+                tx += (ox - tx) * bal;
+                ty += (oy - ty) * bal;
+                tz += (oz - tz) * bal;
+            } else if (air > 0.45) {
+                // Soft air: arms out a little for balance.
+                tx += rX * (sgn * 0.08) * air;
+                ty += rY * (sgn * 0.08) * air - uY * 0.04 * air;
+                tz += rZ * (sgn * 0.08) * air;
+            }
 
             // ---- cast target: both hands up and out along the aim -----------
             //

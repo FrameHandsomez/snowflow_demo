@@ -1,16 +1,18 @@
 /**
- * Character locomotion + snow-surf physics.
+ * Character locomotion + snow-surf + jump physics.
  *
  * This owns motion only — the visual rig, cloth and fur read the state this
- * produces. Two modes share one integrator:
+ * produces. Modes share one integrator:
  *
  *  - WALK: camera-relative desired velocity, eased facing, distance-driven gait
  *    phase so footfalls land where the feet actually are (no sliding).
  *  - SURF: momentum-carrying. Thrust along facing, steering from mouse yaw,
  *    strong lateral grip that bleeds into a drift as you push the carve, and
  *    slope-driven acceleration so dropping down a dune face feels like a gain.
+ *  - JUMP: real vertical velocity while airborne; coyote + jump-buffer so the
+ *    press still lands on uneven snow. Hold shortens hang time (cut jump).
  *
- * Blending between them is eased in both directions; there is no snap.
+ * Blending between walk/surf is eased in both directions; there is no snap.
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -34,6 +36,28 @@ const SURF_THRUST = 11.0;
 const SURF_DRAG = 0.42;
 const SURF_TURN = 2.35; // rad/s at full steer
 const SURF_GRIP = 7.5;
+
+/** Jump / air. Take-off ~4.8 m/s → ~1.15 m peak under GRAVITY. */
+const GRAVITY = -22.0;
+const JUMP_SPEED = 4.85;
+const JUMP_DOUBLE = 4.55; // second press in air
+const JUMP_SURF = 5.45; // ollie pop — modest hang, not a hang-glider
+/** Forward kick on ollie, m/s, scaled by board speed01. */
+const OLLIE_BOOST = 1.55;
+const OLLIE_BOOST_SPEED = 2.35; // extra at full surf speed
+/** Keep board speed through the ollie (1 = inherit, no free speed). */
+const OLLIE_SPEED_KEEP = 1.0;
+const JUMP_CUT = 0.42; // multiply upward vel when jump released early
+const COYOTE = 0.11; // seconds after leaving ground still jumpable
+const JUMP_BUFFER = 0.12; // seconds a press waits for landing
+const TAKEOFF_LOCK = 0.14; // ignore ground snap right after leaving the snow
+const DOUBLE_LOCK = 0.08; // brief lock after double so ground doesn't eat it
+const AIR_ACCEL = 14.0;
+const GROUND_SNAP = 0.08; // metres of snap when nearly grounded
+/** Front-flip duration after a double jump, seconds. */
+const FLIP_TIME = 0.72;
+/** Ollie pose timeline length (independent of hang time). */
+const OLLIE_POSE_TIME = 0.55;
 
 /** Gait: metres of travel per full stride cycle, scaled by speed. */
 const STRIDE_BASE = 1.55;
@@ -104,6 +128,50 @@ export class CharacterController {
         this.groundY = 0;
         this.groundNormal = new Vector3(0, 1, 0);
 
+        /** True while feet are on (or within snap of) the snow. */
+        this.grounded = true;
+        /** 0 on ground, 1 fully airborne — eased for the figure. */
+        this.air = 0;
+        /** Vertical velocity, m/s. Positive up. */
+        this.velY = 0;
+        /** 0..1 takeoff impulse, one-frame spike for pose / spray. */
+        this.jumpPulse = 0;
+        /** 0..1 landing impact, one-frame spike for crouch recover. */
+        this.landPulse = 0;
+        /**
+         * Which takeoff just fired (one frame):
+         * 0 none · 1 ground · 2 double (flip) · 3 surf ollie
+         */
+        this.jumpKind = 0;
+        /** How many jumps used this airtime (0 grounded, 1 after first, 2 after double). */
+        this.jumpsUsed = 0;
+        /** 0..1 front-flip timeline (eased). */
+        this.flip = 0;
+        /** Radians of front-flip already applied — figure adds this to root pitch. */
+        this.flipAngle = 0;
+        /** 0..1 tuck envelope (peaks mid-flip, 0 at start/end). */
+        this.flipTuck = 0;
+        /** True while a double-jump flip is playing out. */
+        this.flipping = false;
+        /** Carries board stance into the air after a surf ollie. */
+        this.surfAir = 0;
+        /** 0..1 ollie flight timeline (pop → float → land prep). Figure reads this. */
+        this.olliePhase = 0;
+
+        this._coyote = 0;
+        this._ollieT = 0;
+        this._jumpBuffer = 0;
+        this._wasGrounded = true;
+        this._jumpHeld = false;
+        /** Must release jump before another takeoff (blocks auto bunny-hop). */
+        this._jumpArmed = true;
+        /** Seconds remaining where ground cannot re-attach after takeoff. */
+        this._takeoffLock = 0;
+        this._flipT = 0;
+        this._prevVelY = 0;
+        /** @type {import("../core/camera.js").CameraRig|null} */
+        this._rig = null;
+
         this._prevSpeed = 0;
     }
 
@@ -115,48 +183,73 @@ export class CharacterController {
         const h = Math.min(dt, 1 / 30);
 
         this.prevVelocity.copyFrom(this.velocity);
-        this.surfActive = input.surf;
+        this.jumpPulse = 0;
+        this.landPulse = 0;
+        this.jumpKind = 0;
+        this._rig = rig;
 
-        // Ease the surf blend — entering and exiting are transitions, not switches.
-        this.surf = expDamp(this.surf, this.surfActive ? 1 : 0, this.surfActive ? 2.6 : 3.4, h);
+        // Board input only sticks while grounded; surfAir keeps the stance aloft
+        // after an ollie so the figure doesn't drop into a walk mid-flight.
+        this.surfActive = input.surf && this.grounded;
+        const surfWant = this.surfActive ? 1 : this.surfAir > 0.15 ? 0.82 * this.surfAir : 0;
+        this.surf = expDamp(this.surf, surfWant, this.surfActive ? 2.6 : 3.4, h);
+        // Hold board-air pose through the flight; snap off on landing via _resolveGround.
+        if (this.grounded && this.surfAir > 0) this.surfAir = expDamp(this.surfAir, 0, 10, h);
 
         rig.getFlatForward(_fwd);
         rig.getFlatRight(_right);
 
-        if (this.surf > 0.5) this._surfStep(h, rig);
+        if (this.surfActive && this.surf > 0.5) this._surfStep(h, rig);
         else this._walkStep(h);
 
-        // ---------------------------------------------------- integrate + snap
+        // ----------------------------------------------------------- jump / air
+        this._jumpStep(h);
+        this._flipStep(h);
+        this._olliePoseStep(h);
+
+        // ---------------------------------------------------- integrate XZ + Y
         this.position.x += this.velocity.x * h;
         this.position.z += this.velocity.z * h;
+        this.position.y += this.velY * h;
 
         this.groundY = this.terrain.heightAt(this.position.x, this.position.z);
         this.terrain.normalAt(this.position.x, this.position.z, this.groundNormal);
-        // Snap with a little softness so micro-ripples don't jitter the rig.
-        this.position.y = expDamp(this.position.y, this.groundY, 26, h);
+        this._resolveGround(h);
 
         // --------------------------------------------------------- bookkeeping
         this.speed = Math.hypot(this.velocity.x, this.velocity.z);
         this.speed01 = Scalar.Clamp(this.speed / SURF_MAX, 0, 1);
 
         this.acceleration.x = (this.velocity.x - this.prevVelocity.x) / h;
+        this.acceleration.y = (this.velY - this._prevVelY) / h;
         this.acceleration.z = (this.velocity.z - this.prevVelocity.z) / h;
+        this._prevVelY = this.velY;
 
         // Lateral acceleration → lean. Project accel onto the character's right.
         const rx = Math.cos(this.facing);
         const rz = -Math.sin(this.facing);
         const latAcc = this.acceleration.x * rx + this.acceleration.z * rz;
-        const leanWant = Scalar.Clamp(latAcc / 26, -1, 1) * (0.35 + 0.65 * this.surf);
+        const leanWant = Scalar.Clamp(latAcc / 26, -1, 1) * (0.35 + 0.65 * this.surf) * (1 - this.air * 0.55);
         this.lean = expDamp(this.lean, leanWant, 6.5, h);
         this.carve = expDamp(this.carve, leanWant, 9, h);
 
         this.streak01 = this.surf * Scalar.Clamp((this.speed - 7) / 11, 0, 1);
+        this.air = expDamp(this.air, this.grounded ? 0 : 1, this.grounded ? 14 : 10, h);
 
         this._gait(h);
     }
 
     _walkStep(h) {
+        // Surf ollie carries board speed — do NOT steer XZ toward walk max or the
+        // hop dies into a 5 m/s float after one frame of air accel.
+        if (!this.grounded && this.surfAir > 0.2) {
+            this._ollieAirSteer(h);
+            return;
+        }
+
         const maxSpeed = input.sprint ? RUN_SPEED : WALK_SPEED;
+        const accel = this.grounded ? WALK_ACCEL : AIR_ACCEL;
+        const decel = this.grounded ? WALK_DECEL : AIR_ACCEL * 0.55;
 
         _wish.set(
             _fwd.x * input.moveZ + _right.x * input.moveX,
@@ -169,15 +262,15 @@ export class CharacterController {
             _wish.x = (_wish.x / wishLen) * maxSpeed;
             _wish.z = (_wish.z / wishLen) * maxSpeed;
 
-            const a = WALK_ACCEL * h;
+            const a = accel * h;
             this.velocity.x += Scalar.Clamp(_wish.x - this.velocity.x, -a, a);
             this.velocity.z += Scalar.Clamp(_wish.z - this.velocity.z, -a, a);
 
             // Face the direction of travel, eased.
             const want = Math.atan2(_wish.x, _wish.z);
-            this.facing = angleDamp(this.facing, want, 11, h);
-        } else {
-            const d = WALK_DECEL * h;
+            this.facing = angleDamp(this.facing, want, this.grounded ? 11 : 6, h);
+        } else if (this.grounded) {
+            const d = decel * h;
             const s = Math.hypot(this.velocity.x, this.velocity.z);
             if (s > 0.0001) {
                 const k = Math.max(0, s - d) / s;
@@ -185,6 +278,274 @@ export class CharacterController {
                 this.velocity.z *= k;
             }
         }
+    }
+
+    /** Light air steer while carrying ollie momentum — no speed cap to walk. */
+    _ollieAirSteer(h) {
+        // A/D lean the flight a little; W keeps facing thrust, S trims a bit.
+        const steer = Scalar.Clamp(input.moveX, -1, 1);
+        if (Math.abs(steer) > 0.01) {
+            this.facing += steer * 0.9 * h;
+            const rx = Math.cos(this.facing);
+            const rz = -Math.sin(this.facing);
+            this.velocity.x += rx * steer * 2.0 * h;
+            this.velocity.z += rz * steer * 2.0 * h;
+        }
+        if (input.moveZ > 0.01) {
+            const fx = Math.sin(this.facing);
+            const fz = Math.cos(this.facing);
+            this.velocity.x += fx * 1.4 * h * input.moveZ;
+            this.velocity.z += fz * 1.4 * h * input.moveZ;
+        } else if (input.moveZ < -0.01) {
+            const s = Math.hypot(this.velocity.x, this.velocity.z);
+            if (s > 0.001) {
+                const k = Math.max(0, 1 + input.moveZ * 0.7 * h);
+                this.velocity.x *= k;
+                this.velocity.z *= k;
+            }
+        }
+        // Noticeable drag so the hop settles instead of skating forever.
+        const s = Math.hypot(this.velocity.x, this.velocity.z);
+        if (s > 0.001) {
+            const drag = (1.15 + s * 0.04) * h;
+            const k = Math.max(0, s - drag) / s;
+            this.velocity.x *= k;
+            this.velocity.z *= k;
+        }
+    }
+
+    _jumpStep(h) {
+        this._takeoffLock = Math.max(0, this._takeoffLock - h);
+
+        // Rising edge only arms the buffer. Holding Space after takeoff must not
+        // keep the buffer full or the character bunny-hops on every landing.
+        if (input.jumpPressed && this._jumpArmed) {
+            this._jumpBuffer = JUMP_BUFFER;
+        } else {
+            this._jumpBuffer = Math.max(0, this._jumpBuffer - h);
+        }
+
+        // Re-arm only after the binding is fully released.
+        if (!input.jump) {
+            this._jumpArmed = true;
+            this._jumpHeld = false;
+        }
+
+        if (this.grounded && this._takeoffLock <= 0) {
+            this._coyote = COYOTE;
+            this.jumpsUsed = 0;
+        } else {
+            this._coyote = Math.max(0, this._coyote - h);
+        }
+
+        const wantJump = this._jumpArmed && this._jumpBuffer > 0 && this._takeoffLock <= 0;
+        const canGround =
+            wantJump && (this.grounded || this._coyote > 0) && this.jumpsUsed === 0;
+        // Second press in the air → double jump + front flip.
+        // Second press in the air. Do NOT gate on `this.air` — that blend lags
+        // ~0.2s after takeoff, so a quick double-tap never armed the flip.
+        const canDouble =
+            wantJump &&
+            !this.grounded &&
+            this.jumpsUsed === 1 &&
+            this._coyote <= 0;
+
+        if (canGround) {
+            const fromSurf = this.surf > 0.45 || this.surfActive;
+            this._doJump(fromSurf ? "surf" : "ground");
+        } else if (canDouble) {
+            this._doJump("double");
+        }
+
+        // Variable jump: release early → cut upward velocity (ground/surf only).
+        if (this._jumpHeld && !input.jump && this.velY > 0 && this.jumpsUsed < 2) {
+            this.velY *= JUMP_CUT;
+            this._jumpHeld = false;
+        }
+
+        if (!this.grounded || this._takeoffLock > 0) {
+            this.velY += GRAVITY * h;
+            // Terminal fall so long drops don't nuke the landing pose.
+            if (this.velY < -16) this.velY = -16;
+        }
+    }
+
+    /**
+     * @param {"ground"|"double"|"surf"} kind
+     */
+    _doJump(kind) {
+        const fromSurf = kind === "surf";
+        const isDouble = kind === "double";
+
+        if (isDouble) {
+            // Reset upward speed so the second pop always reads, even mid-fall.
+            this.velY = Math.max(this.velY * 0.15, 0) + JUMP_DOUBLE;
+            this.jumpsUsed = 2;
+            // Drop board-air state — flip is a ball, not an ollie carry.
+            this.surfAir = 0;
+            this.olliePhase = 0;
+            this._ollieT = 0;
+            this._startFlip();
+            this.jumpPulse = 1;
+            this.jumpKind = 2;
+            // Tiny forward kick so the flip travels.
+            const fx = Math.sin(this.facing);
+            const fz = Math.cos(this.facing);
+            this.velocity.x += fx * 0.9;
+            this.velocity.z += fz * 0.9;
+            this._takeoffLock = DOUBLE_LOCK;
+            this._rig?.addTrauma?.(0.22);
+        } else if (fromSurf) {
+            this.velY = JUMP_SURF + this.speed01 * 0.35;
+            this.jumpsUsed = 1;
+            this.surfAir = 1;
+            this._ollieT = 0;
+            this.olliePhase = 0;
+            // Never carry a leftover flip into an ollie.
+            this.flipping = false;
+            this.flip = 0;
+            this.flipAngle = 0;
+            this.flipTuck = 0;
+            this._flipT = 0;
+            this.jumpPulse = 1.05;
+            this.jumpKind = 3;
+            // Inherit board speed, then a modest nose kick — readable, not a rocket.
+            this.velocity.x *= OLLIE_SPEED_KEEP;
+            this.velocity.z *= OLLIE_SPEED_KEEP;
+            const fx = Math.sin(this.facing);
+            const fz = Math.cos(this.facing);
+            const kick = OLLIE_BOOST + this.speed01 * OLLIE_BOOST_SPEED;
+            this.velocity.x += fx * kick;
+            this.velocity.z += fz * kick;
+            const s = Math.hypot(this.velocity.x, this.velocity.z);
+            const cap = SURF_MAX * 1.06;
+            if (s > cap) {
+                const k = cap / s;
+                this.velocity.x *= k;
+                this.velocity.z *= k;
+            }
+            this._takeoffLock = TAKEOFF_LOCK;
+            this._jumpHeld = true;
+            this._rig?.addTrauma?.(0.14 + this.speed01 * 0.18);
+        } else {
+            this.velY = JUMP_SPEED;
+            this.jumpsUsed = 1;
+            this.jumpPulse = 1;
+            this.jumpKind = 1;
+            if (input.moving) {
+                const boost = input.sprint ? 0.55 : 0.25;
+                this.velocity.x += _fwd.x * input.moveZ * boost + _right.x * input.moveX * boost;
+                this.velocity.z += _fwd.z * input.moveZ * boost + _right.z * input.moveX * boost;
+            }
+            this._takeoffLock = TAKEOFF_LOCK;
+            this._jumpHeld = true;
+        }
+
+        this.grounded = false;
+        this._coyote = 0;
+        this._jumpBuffer = 0;
+        this._jumpArmed = false;
+        this.position.y = Math.max(this.position.y, this.groundY) + GROUND_SNAP + 0.05;
+    }
+
+    _startFlip() {
+        this.flipping = true;
+        this._flipT = 0;
+        this.flip = 0;
+        // Seed a real tuck + a few degrees so frame 0 is already a ball, not layout.
+        this.flipAngle = 0.18;
+        this.flipTuck = 0.7;
+    }
+
+    _flipStep(h) {
+        if (!this.flipping) {
+            this.flip = 0;
+            this.flipAngle = 0;
+            if (this.flipTuck > 0.001) this.flipTuck = expDamp(this.flipTuck, 0, 14, h);
+            else this.flipTuck = 0;
+            return;
+        }
+        this._flipT += h;
+        const u = Math.min(1, this._flipT / FLIP_TIME);
+        // Smoothstep — limbs stay tucked; spin is body pitch only.
+        const e = u * u * (3 - 2 * u);
+        this.flip = e;
+        this.flipAngle = e * Math.PI * 2;
+        // Hold a deep ball most of the spin; open only in the last ~15% for land.
+        // sin(πe) alone went to 0 at both ends → layout frames = corpse pose.
+        const open = Math.max(0, (e - 0.85) / 0.15);
+        this.flipTuck = 0.72 + 0.28 * Math.sin(Math.PI * e) * (1 - open) - 0.55 * open;
+        this.flipTuck = Math.max(0, Math.min(1, this.flipTuck));
+        if (u >= 1) {
+            this.flipping = false;
+            this.flip = 0;
+            this.flipAngle = 0;
+            this.flipTuck = 0;
+            this._flipT = 0;
+        }
+    }
+
+    /** Advances ollie pose clock while airborne on a board hop. */
+    _olliePoseStep(h) {
+        if (this.surfAir < 0.05 || this.grounded) {
+            if (this.grounded) {
+                this.olliePhase = 0;
+                this._ollieT = 0;
+            } else if (this.olliePhase > 0) {
+                this.olliePhase = expDamp(this.olliePhase, 0, 8, h);
+            }
+            return;
+        }
+        this._ollieT += h;
+        // Phase runs 0→1 over OLLIE_POSE_TIME then holds near 1 (land-prep) until touchdown.
+        const u = Math.min(1, this._ollieT / OLLIE_POSE_TIME);
+        this.olliePhase = u * u * (3 - 2 * u);
+    }
+
+    _resolveGround(h) {
+        const gy = this.groundY;
+        const was = this._wasGrounded;
+
+        // Just left the snow — do not snap back or the jump dies / retriggers.
+        if (this._takeoffLock > 0 && this.velY > 0) {
+            this.grounded = false;
+            this._wasGrounded = false;
+            return;
+        }
+
+        if (this.velY <= 0.05 && this.position.y <= gy + GROUND_SNAP) {
+            // Landing / stay grounded.
+            if (!was || this.position.y < gy - 0.002) {
+                let impact = Scalar.Clamp((-this.velY - 1.5) / 9, 0, 1);
+                // Surf ollie / flip landings hit harder visually.
+                if (this.surfAir > 0.3) impact = Math.min(1, impact + 0.25 + this.speed01 * 0.2);
+                if (this.jumpsUsed >= 2) impact = Math.min(1, impact + 0.15);
+                if (impact > 0.05) this.landPulse = impact;
+                if (impact > 0.35) this._rig?.addTrauma?.(impact * 0.2);
+            }
+            this.position.y = gy;
+            this.velY = 0;
+            this.grounded = true;
+            this._takeoffLock = 0;
+            this.jumpsUsed = 0;
+            this.surfAir = 0;
+            this.olliePhase = 0;
+            this._ollieT = 0;
+            this.flipping = false;
+            this.flip = 0;
+            this.flipAngle = 0;
+            this.flipTuck = 0;
+            this._flipT = 0;
+        } else if (this.position.y > gy + GROUND_SNAP) {
+            this.grounded = false;
+        } else if (this.grounded) {
+            // Soft follow while walking so micro-ripples don't jitter, without
+            // killing a real jump the moment it starts.
+            this.position.y = expDamp(this.position.y, gy, 26, h);
+            this.velY = 0;
+        }
+
+        this._wasGrounded = this.grounded;
     }
 
     _surfStep(h, rig) {
@@ -255,7 +616,12 @@ export class CharacterController {
         // travelling at nineteen metres a second. The gait is distance-driven, so
         // it answered that with a twelve-hertz cadence and the legs blurred. A
         // sprint is the fastest thing anyone walks at; above it, glide.
-        this.stepping = this.surf <= 0.5 && this.speed <= RUN_SPEED * 1.2;
+        // No gait in the air or on the board — feet free for jump pose / surf stance.
+        this.stepping =
+            this.grounded &&
+            this.air < 0.35 &&
+            this.surf <= 0.5 &&
+            this.speed <= RUN_SPEED * 1.2;
         if (!this.stepping) {
             this.gaitPhase = 0;
             return;

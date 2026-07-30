@@ -14,15 +14,22 @@ no meshes, no HDRIs and no animation data in this repository.
 
 ## Controls
 
-| | |
+| | default |
 |---|---|
 | Click | capture the pointer |
 | `W` `A` `S` `D` | move, relative to the camera |
 | Mouse | look · **Wheel** zoom |
 | `Shift` | sprint |
+| `Space` | jump · press again in air for **double jump + front flip** |
+| **Right mouse (hold)** + `Space` | **surf ollie** — pop off the board with extra spray |
 | **Right mouse (hold)** | snow-surf — carve across the field and throw a wake |
 | `1` – `5` | the five spells (`2` is a held cast) |
 | `F1` or `` ` `` | settings and performance overlay |
+
+Keys are rebindable with **two slots** per action (primary + secondary). Open
+the overlay (`F1`), scroll to **Controls**, click a slot, then press the new key
+or mouse button. Right-click a slot to clear it. `Esc` cancels; **reset keys**
+restores defaults. Bindings persist in `localStorage`.
 
 The overlay exposes every art parameter as a live slider — sun angle, wind
 bearing, subsurface radius, deformation depth, tonemap curve, exposure — plus a

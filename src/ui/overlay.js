@@ -10,6 +10,22 @@
 
 import { S, SCHEMA, set, applyPreset } from "../core/settings.js";
 import { stats, systemMs, FrameGraph, spikes, resetSpikes } from "../core/perf.js";
+import {
+    ACTION_META,
+    getBinding,
+    setBinding,
+    clearBinding,
+    resetBindings,
+    formatCode,
+} from "../core/bindings.js";
+import { setRebindCapture } from "../core/input.js";
+import {
+    DEFAULT_CROSSHAIR_CODE,
+    COLOR_PRESETS,
+    isLikelyCrosshairCode,
+    normalizeCrosshairCode,
+    normalizeHex,
+} from "./crosshair.js";
 
 const CSS = `
 #ov {
@@ -92,6 +108,81 @@ const CSS = `
   background: rgba(0,0,0,0.34); border: 1px solid rgba(143,196,232,0.10);
   color: #7f93a8; font-size: 10px; line-height: 1.45; word-break: break-all;
   user-select: text; cursor: text; }
+
+#ov .bind-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+#ov .bind-row > label { flex: 1; min-width: 0; color: #8fa3b8; cursor: default; }
+#ov .bind-slots { display: flex; gap: 4px; flex: 0 0 auto; }
+#ov .bind-btn {
+  flex: 0 0 72px; background: rgba(143,196,232,0.07); color: #dbe6f2;
+  border: 1px solid rgba(143,196,232,0.16); border-radius: 3px; padding: 4px 4px;
+  font: inherit; letter-spacing: 0.04em; cursor: pointer; text-align: center;
+  transition: all 140ms ease;
+}
+#ov .bind-btn.empty { color: #55677a; }
+#ov .bind-btn:hover { background: rgba(143,196,232,0.14); }
+#ov .bind-btn.listen {
+  background: rgba(232, 176, 79, 0.18); border-color: rgba(232, 176, 79, 0.55);
+  color: #f0d9a0; animation: bindPulse 1s ease infinite;
+}
+@keyframes bindPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,176,79,0); }
+  50% { box-shadow: 0 0 10px 0 rgba(232,176,79,0.35); }
+}
+#ov .bind-hint {
+  margin: 2px 0 6px; font-size: 9px; letter-spacing: 0.06em; color: #55677a;
+}
+
+#ov .xh-box {
+  margin: 6px 0 4px; display: flex; flex-direction: column; gap: 6px;
+}
+#ov .xh-box textarea {
+  width: 100%; min-height: 44px; resize: vertical;
+  background: rgba(0,0,0,0.34); color: #dbe6f2;
+  border: 1px solid rgba(143,196,232,0.16); border-radius: 3px;
+  padding: 6px 7px; font: inherit; line-height: 1.35; outline: none;
+}
+#ov .xh-box textarea:focus { border-color: rgba(143,196,232,0.4); }
+#ov .xh-box .xh-status {
+  min-height: 1.2em; font-size: 9px; letter-spacing: 0.04em; color: #55677a;
+}
+#ov .xh-box .xh-status.ok { color: #7dcea0; }
+#ov .xh-box .xh-status.bad { color: #e8734f; }
+#ov .xh-box .xh-actions { display: flex; gap: 6px; }
+#ov .xh-box .xh-actions button,
+#ov .xh-tune button {
+  flex: 1; background: rgba(143,196,232,0.07); color: #8fa3b8;
+  border: 1px solid rgba(143,196,232,0.14); border-radius: 3px; padding: 5px 0;
+  font: inherit; letter-spacing: 0.06em; cursor: pointer; transition: all 140ms ease;
+}
+#ov .xh-box .xh-actions button:hover,
+#ov .xh-tune button:hover { background: rgba(143,196,232,0.14); color: #dbe6f2; }
+#ov .xh-box .xh-actions button.primary {
+  background: rgba(143,196,232,0.18); color: #eaf4ff; border-color: rgba(143,196,232,0.35);
+}
+#ov .xh-sub {
+  margin: 10px 0 4px; font-size: 9px; font-weight: 500; letter-spacing: 0.16em;
+  text-transform: uppercase; color: #6f8296;
+}
+#ov .xh-swatches { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 6px; }
+#ov .xh-swatch {
+  width: 18px; height: 18px; border-radius: 3px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.18); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
+  padding: 0;
+}
+#ov .xh-swatch.on { outline: 2px solid #8fc4e8; outline-offset: 1px; }
+#ov .xh-color-row {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 8px;
+}
+#ov .xh-color-row input[type=color] {
+  width: 34px; height: 22px; padding: 0; border: 1px solid rgba(143,196,232,0.2);
+  border-radius: 3px; background: transparent; cursor: pointer;
+}
+#ov .xh-color-row input[type=text] {
+  flex: 1; background: rgba(0,0,0,0.34); color: #dbe6f2;
+  border: 1px solid rgba(143,196,232,0.16); border-radius: 3px;
+  padding: 4px 6px; font: inherit; outline: none; letter-spacing: 0.04em;
+}
+#ov .xh-tune .row > label { flex: 0 0 118px; }
 `;
 
 export class Overlay {
@@ -207,6 +298,15 @@ export class Overlay {
         }
         this._syncPresets();
 
+        // ------------------------------------------------------- keybinds
+        this._listeningAction = null;
+        this._listeningSlot = 0;
+        this._onRebindKey = null;
+        this._onRebindMouse = null;
+        /** @type {Record<string, [HTMLButtonElement, HTMLButtonElement]>} */
+        this._bindBtns = Object.create(null);
+        this._mkBindings();
+
         // ------------------------------------------------------- controls
         /** @type {Array<{k:string, sync:() => void}>} */
         this.widgets = [];
@@ -241,6 +341,142 @@ export class Overlay {
         parent.appendChild(d);
         this.readouts[key] = b;
         this.readouts[key + "_row"] = d;
+    }
+
+    _mkBindings() {
+        const h = document.createElement("h2");
+        h.textContent = "Controls";
+        this.el.appendChild(h);
+
+        const hint = document.createElement("div");
+        hint.className = "bind-hint";
+        hint.textContent = "2 slots · click set · right-click clear · Esc cancel";
+        this.el.appendChild(hint);
+
+        for (let i = 0; i < ACTION_META.length; i++) {
+            const meta = ACTION_META[i];
+            const row = document.createElement("div");
+            row.className = "bind-row";
+            const lab = document.createElement("label");
+            lab.textContent = meta.label;
+            row.appendChild(lab);
+
+            const slots = document.createElement("div");
+            slots.className = "bind-slots";
+            /** @type {[HTMLButtonElement, HTMLButtonElement]} */
+            const pair = /** @type {any} */ ([null, null]);
+            for (let s = 0; s < 2; s++) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "bind-btn";
+                btn.title = s === 0 ? "Primary" : "Secondary";
+                const slot = s;
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._startListen(meta.id, slot);
+                };
+                btn.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._stopListen();
+                    clearBinding(meta.id, slot);
+                    this._syncBindings();
+                };
+                slots.appendChild(btn);
+                pair[s] = btn;
+            }
+            row.appendChild(slots);
+            this.el.appendChild(row);
+            this._bindBtns[meta.id] = pair;
+        }
+
+        const pr = document.createElement("div");
+        pr.className = "presets";
+        this.el.appendChild(pr);
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.textContent = "reset keys";
+        reset.onclick = () => {
+            this._stopListen();
+            resetBindings();
+            this._syncBindings();
+        };
+        pr.appendChild(reset);
+    }
+
+    _syncBindings() {
+        for (let i = 0; i < ACTION_META.length; i++) {
+            const id = ACTION_META[i].id;
+            const pair = this._bindBtns[id];
+            if (!pair) continue;
+            for (let s = 0; s < 2; s++) {
+                const btn = pair[s];
+                if (!btn) continue;
+                const code = getBinding(id, s);
+                const listening = this._listeningAction === id && this._listeningSlot === s;
+                btn.classList.toggle("listen", listening);
+                btn.classList.toggle("empty", !listening && !code);
+                btn.textContent = listening ? "…" : formatCode(code);
+            }
+        }
+    }
+
+    /**
+     * @param {string} actionId
+     * @param {number} slot
+     */
+    _startListen(actionId, slot) {
+        if (this._listeningAction === actionId && this._listeningSlot === slot) {
+            this._stopListen();
+            return;
+        }
+        this._stopListen();
+        this._listeningAction = actionId;
+        this._listeningSlot = slot;
+        setRebindCapture(true);
+        // Exit pointer lock so the next click/key hits the overlay cleanly.
+        if (document.pointerLockElement) document.exitPointerLock();
+        this._syncBindings();
+
+        this._onRebindKey = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.code === "Escape") {
+                this._stopListen();
+                return;
+            }
+            if (e.repeat) return;
+            if (setBinding(actionId, e.code, slot)) this._stopListen();
+        };
+        this._onRebindMouse = (e) => {
+            // Ignore clicks on overlay chrome (other bind rows, reset, sliders).
+            const t = /** @type {Element|null} */ (e.target);
+            if (t && typeof t.closest === "function" && t.closest("#ov button, #ov input, #ov select, #ov .sw, #ov .bind-btn")) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const code = "Mouse" + e.button;
+            if (setBinding(actionId, code, slot)) this._stopListen();
+        };
+        window.addEventListener("keydown", this._onRebindKey, true);
+        window.addEventListener("mousedown", this._onRebindMouse, true);
+    }
+
+    _stopListen() {
+        if (this._onRebindKey) {
+            window.removeEventListener("keydown", this._onRebindKey, true);
+            this._onRebindKey = null;
+        }
+        if (this._onRebindMouse) {
+            window.removeEventListener("mousedown", this._onRebindMouse, true);
+            this._onRebindMouse = null;
+        }
+        this._listeningAction = null;
+        this._listeningSlot = 0;
+        setRebindCapture(false);
+        this._syncBindings();
     }
 
     _mkGroup(group) {
@@ -312,6 +548,315 @@ export class Overlay {
 
             this.el.appendChild(row);
         }
+
+        if (group.group === "HUD") this._mkCrosshairImport();
+    }
+
+    _xhApi() {
+        return globalThis.SNOWFLOW?.crosshair || null;
+    }
+
+    _xhProfile() {
+        const api = this._xhApi();
+        return api && typeof api.getProfile === "function" ? api.getProfile() : null;
+    }
+
+    _mkCrosshairImport() {
+        // ---- colour -------------------------------------------------------
+        const cSub = document.createElement("div");
+        cSub.className = "xh-sub";
+        cSub.textContent = "Color";
+        this.el.appendChild(cSub);
+
+        const swatches = document.createElement("div");
+        swatches.className = "xh-swatches";
+        /** @type {Record<string, HTMLButtonElement>} */
+        this._xhSwatches = Object.create(null);
+        for (const preset of COLOR_PRESETS) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "xh-swatch";
+            b.title = preset.label;
+            b.style.background = preset.hex;
+            b.onclick = () => this._setCrosshairColor(preset.hex);
+            swatches.appendChild(b);
+            this._xhSwatches[preset.hex] = b;
+        }
+        this.el.appendChild(swatches);
+
+        const colorRow = document.createElement("div");
+        colorRow.className = "xh-color-row";
+        const picker = document.createElement("input");
+        picker.type = "color";
+        picker.value = "#FFFFFF";
+        picker.title = "Custom colour";
+        picker.oninput = () => this._setCrosshairColor(picker.value);
+        const hex = document.createElement("input");
+        hex.type = "text";
+        hex.spellcheck = false;
+        hex.maxLength = 7;
+        hex.placeholder = "#FFFFFF";
+        hex.value = "#FFFFFF";
+        hex.addEventListener("keydown", (e) => e.stopPropagation());
+        hex.addEventListener("keyup", (e) => e.stopPropagation());
+        hex.onchange = () => this._setCrosshairColor(hex.value);
+        hex.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                this._setCrosshairColor(hex.value);
+            }
+        };
+        colorRow.appendChild(picker);
+        colorRow.appendChild(hex);
+        this.el.appendChild(colorRow);
+        this._xhPicker = picker;
+        this._xhHex = hex;
+
+        // ---- import -------------------------------------------------------
+        const iSub = document.createElement("div");
+        iSub.className = "xh-sub";
+        iSub.textContent = "Import code";
+        this.el.appendChild(iSub);
+
+        const hint = document.createElement("div");
+        hint.className = "bind-hint";
+        hint.textContent = "vcrdb / Valorant share string";
+        this.el.appendChild(hint);
+
+        const box = document.createElement("div");
+        box.className = "xh-box";
+
+        const ta = document.createElement("textarea");
+        ta.spellcheck = false;
+        ta.placeholder = "0;P;d;1;f;0;0t;4;0l;1;…";
+        ta.value = String(S.crosshairCode || DEFAULT_CROSSHAIR_CODE);
+        ta.addEventListener("keydown", (e) => e.stopPropagation());
+        ta.addEventListener("keyup", (e) => e.stopPropagation());
+        box.appendChild(ta);
+        this._xhInput = ta;
+
+        const actions = document.createElement("div");
+        actions.className = "xh-actions";
+
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.className = "primary";
+        apply.textContent = "import";
+        apply.onclick = () => this._importCrosshair(ta.value);
+
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.textContent = "reset";
+        reset.onclick = () => {
+            const api = this._xhApi();
+            if (api?.reset) api.reset();
+            else this._importCrosshair(DEFAULT_CROSSHAIR_CODE);
+            ta.value = DEFAULT_CROSSHAIR_CODE;
+            this._syncCrosshairUi();
+            this._xhMsg("ok", "reset to default white cross");
+        };
+
+        actions.appendChild(apply);
+        actions.appendChild(reset);
+        box.appendChild(actions);
+
+        const status = document.createElement("div");
+        status.className = "xh-status";
+        status.textContent = "or tune below · live";
+        box.appendChild(status);
+        this._xhStatus = status;
+        this.el.appendChild(box);
+
+        // ---- live tuners (Valorant-like) ----------------------------------
+        const tune = document.createElement("div");
+        tune.className = "xh-tune";
+        this.el.appendChild(tune);
+        this._xhTune = tune;
+        /** @type {Array<() => void>} */
+        this._xhTuneSync = [];
+
+        this._xhSection(tune, "General", [
+            { k: "outlines", l: "Outlines", t: "b" },
+            { k: "outlineOpacity", l: "Outline opac.", t: "f", min: 0, max: 1, step: 0.05 },
+            { k: "outlineThickness", l: "Outline thick", t: "f", min: 0, max: 4, step: 1 },
+            { k: "centerDot", l: "Center dot", t: "b" },
+            { k: "centerDotOpacity", l: "Dot opac.", t: "f", min: 0, max: 1, step: 0.05 },
+            { k: "centerDotThickness", l: "Dot size", t: "f", min: 0, max: 6, step: 0.5 },
+        ]);
+        this._xhSection(tune, "Inner lines", [
+            { k: "inner", l: "Show inner", t: "b" },
+            { k: "innerOpacity", l: "Opacity", t: "f", min: 0, max: 1, step: 0.05 },
+            { k: "innerLength", l: "Length", t: "f", min: 0, max: 12, step: 0.5 },
+            { k: "innerThickness", l: "Thickness", t: "f", min: 0, max: 8, step: 0.5 },
+            { k: "innerOffset", l: "Offset", t: "f", min: 0, max: 12, step: 0.5 },
+        ]);
+        this._xhSection(tune, "Outer lines", [
+            { k: "outer", l: "Show outer", t: "b" },
+            { k: "outerOpacity", l: "Opacity", t: "f", min: 0, max: 1, step: 0.05 },
+            { k: "outerLength", l: "Length", t: "f", min: 0, max: 12, step: 0.5 },
+            { k: "outerThickness", l: "Thickness", t: "f", min: 0, max: 8, step: 0.5 },
+            { k: "outerOffset", l: "Offset", t: "f", min: 0, max: 20, step: 0.5 },
+        ]);
+
+        // Late-bind when SNOWFLOW is ready (boot order: overlay before export).
+        const tryBind = () => {
+            const api = this._xhApi();
+            if (!api) {
+                requestAnimationFrame(tryBind);
+                return;
+            }
+            this._syncCrosshairUi();
+            if (typeof api.onChange === "function") {
+                api.onChange(() => this._syncCrosshairUi());
+            }
+        };
+        tryBind();
+
+        this.widgets.push({
+            k: "crosshairCode",
+            sync: () => {
+                if (document.activeElement === ta) return;
+                ta.value = String(S.crosshairCode || DEFAULT_CROSSHAIR_CODE);
+                this._syncCrosshairUi();
+            },
+        });
+    }
+
+    /**
+     * @param {HTMLElement} parent
+     * @param {string} title
+     * @param {Array<{k:string,l:string,t:string,min?:number,max?:number,step?:number}>} items
+     */
+    _xhSection(parent, title, items) {
+        const sub = document.createElement("div");
+        sub.className = "xh-sub";
+        sub.textContent = title;
+        parent.appendChild(sub);
+
+        for (const it of items) {
+            const row = document.createElement("div");
+            row.className = "row";
+            const lab = document.createElement("label");
+            lab.textContent = it.l;
+            row.appendChild(lab);
+
+            if (it.t === "b") {
+                const wrap = document.createElement("div");
+                wrap.className = "tog";
+                const sw = document.createElement("div");
+                sw.className = "sw";
+                sw.onclick = () => {
+                    const p = this._xhProfile();
+                    if (!p) return;
+                    this._xhApi()?.setProfile?.({ [it.k]: !p[it.k] });
+                    this._syncCrosshairUi();
+                };
+                wrap.appendChild(sw);
+                row.appendChild(wrap);
+                this._xhTuneSync.push(() => {
+                    const p = this._xhProfile();
+                    if (p) sw.classList.toggle("on", !!p[it.k]);
+                });
+            } else {
+                const r = document.createElement("input");
+                r.type = "range";
+                r.min = String(it.min);
+                r.max = String(it.max);
+                r.step = String(it.step);
+                const v = document.createElement("span");
+                v.className = "val";
+                v.textContent = "—";
+                r.oninput = () => {
+                    const n = parseFloat(r.value);
+                    this._xhApi()?.setProfile?.({ [it.k]: n });
+                    v.textContent = fmtNum(n, it.step);
+                };
+                row.appendChild(r);
+                row.appendChild(v);
+                this._xhTuneSync.push(() => {
+                    const p = this._xhProfile();
+                    if (!p) return;
+                    const n = Number(p[it.k]);
+                    if (document.activeElement !== r) r.value = String(n);
+                    v.textContent = fmtNum(n, it.step);
+                });
+            }
+            parent.appendChild(row);
+        }
+    }
+
+    _syncCrosshairUi() {
+        const p = this._xhProfile();
+        if (!p) return;
+        const hex = normalizeHex(p.color);
+        if (this._xhPicker && document.activeElement !== this._xhPicker) {
+            this._xhPicker.value = hex;
+        }
+        if (this._xhHex && document.activeElement !== this._xhHex) {
+            this._xhHex.value = hex;
+        }
+        if (this._xhSwatches) {
+            for (const h in this._xhSwatches) {
+                this._xhSwatches[h].classList.toggle("on", h === hex);
+            }
+        }
+        if (this._xhInput && document.activeElement !== this._xhInput) {
+            this._xhInput.value = String(p.code || S.crosshairCode || DEFAULT_CROSSHAIR_CODE);
+        }
+        if (this._xhTuneSync) {
+            for (let i = 0; i < this._xhTuneSync.length; i++) this._xhTuneSync[i]();
+        }
+    }
+
+    /**
+     * @param {string} hex
+     */
+    _setCrosshairColor(hex) {
+        const api = this._xhApi();
+        const clean = normalizeHex(hex);
+        if (api?.setColor) api.setColor(clean);
+        else if (api?.setProfile) api.setProfile({ color: clean });
+        this._syncCrosshairUi();
+        this._xhMsg("ok", "color " + clean);
+    }
+
+    /**
+     * @param {"ok"|"bad"} kind
+     * @param {string} msg
+     */
+    _xhMsg(kind, msg) {
+        if (!this._xhStatus) return;
+        this._xhStatus.className = "xh-status " + kind;
+        this._xhStatus.textContent = msg;
+    }
+
+    /**
+     * @param {string} raw
+     */
+    _importCrosshair(raw) {
+        const code = normalizeCrosshairCode(raw);
+        if (!code) {
+            this._xhMsg("bad", "empty — paste a code first");
+            return;
+        }
+        if (!isLikelyCrosshairCode(code)) {
+            this._xhMsg("bad", "not a crosshair code");
+            return;
+        }
+
+        const api = this._xhApi();
+        if (api && typeof api.applyCode === "function") {
+            if (!api.applyCode(code)) {
+                this._xhMsg("bad", "import failed");
+                return;
+            }
+        } else {
+            set("crosshairCode", code);
+        }
+
+        if (this._xhInput) this._xhInput.value = code;
+        this._syncCrosshairUi();
+        this._xhMsg("ok", "imported");
     }
 
     _syncPresets() {
@@ -327,7 +872,12 @@ export class Overlay {
     toggle() {
         this.visible = !this.visible;
         this.el.classList.toggle("show", this.visible);
-        if (this.visible) this._syncWidgets();
+        if (this.visible) {
+            this._syncWidgets();
+            this._syncBindings();
+        } else {
+            this._stopListen();
+        }
     }
 
     /**

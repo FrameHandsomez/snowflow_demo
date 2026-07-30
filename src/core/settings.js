@@ -109,6 +109,15 @@ export const S = {
 
     // ----------------------------------------------------------------- debug
     debugView: "beauty", // beauty | deform | normals | depth | cascades | footprint | fineNormals
+
+    // --------------------------------------------------------------- HUD
+    /** Center crosshair for aiming spells / surf line. */
+    showCrosshair: true,
+    /**
+     * Valorant / CS share string (vcrdb, crashz, in-game copy).
+     * Paste a new one in F1 → HUD. Default = vcrdb "Small Dot".
+     */
+    crosshairCode: "0;P;d;1;f;0;0t;4;0l;1;0o;0;0a;1;0f;0;1b;0",
 };
 
 /**
@@ -195,6 +204,12 @@ export const SCHEMA = [
             { k: "bloomStrength", l: "Bloom amt", t: "f", min: 0, max: 1, step: 0.005 },
             { k: "grainStrength", l: "Grain amt", t: "f", min: 0, max: 0.1, step: 0.001 },
             { k: "sharpenStrength", l: "Sharpen amt", t: "f", min: 0, max: 1, step: 0.01 },
+        ],
+    },
+    {
+        group: "HUD",
+        items: [
+            { k: "showCrosshair", l: "Crosshair", t: "b" },
         ],
     },
     {
