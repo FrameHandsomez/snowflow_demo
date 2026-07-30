@@ -31,8 +31,7 @@ export class SpawnShrine {
         this.sky = sky;
         this.shadows = shadows;
 
-        const y = terrain.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
-        this.mesh = buildMesh(scene, SHRINE_SPAWN.x, y, SHRINE_SPAWN.z);
+        this.mesh = buildMesh(scene, terrain, SHRINE_SPAWN.x, SHRINE_SPAWN.z);
         this.material = this._makeMaterial();
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 1;
@@ -145,10 +144,10 @@ export class SpawnShrine {
     }
 
     stampSnow() {
-        this.terrain.deform.brush(
-            SHRINE_SPAWN.x, SHRINE_SPAWN.z, BASE_RADIUS + 0.8,
-            0.14, 0.11, 0.42, 0.5, 0, 1, 0.55
-        );
+        const deform = this.terrain.deform;
+        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z, BASE_RADIUS + 0.8, 0.14, 0.11, 0.42, 0.5, 0, 1, 0.55);
+        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z - 6.4, 3.2, 0.1, 0.06, 0.34, 0.36, 0, 1.9, 0.4);
+        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z + 4.9, 2.5, 0.12, 0.08, 0.5, 0.58, 0, 1.2, 0.5);
     }
 
     dispose() {
@@ -159,10 +158,12 @@ export class SpawnShrine {
     }
 }
 
-function buildMesh(scene, cx, cy, cz) {
+function buildMesh(scene, terrain, cx, cz) {
     const positions = [];
     const normals = [];
     const indices = [];
+
+    const groundAt = (x, z) => terrain.heightAt(cx + x, cz + z);
 
     const addBox = (x0, y0, z0, x1, y1, z1) => {
         const base = positions.length / 3;
@@ -185,13 +186,32 @@ function buildMesh(scene, cx, cy, cz) {
         }
     };
 
-    // An octagonal perimeter leaves a broad, clear courtyard at the spawn point.
+    const addModule = (x, z, halfX, halfZ, bottom, top) => {
+        const y = groundAt(x, z);
+        addBox(cx + x - halfX, y + bottom, cz + z - halfZ, cx + x + halfX, y + top, cz + z + halfZ);
+    };
+
+    // Low outer blocks define the courtyard without constricting the spawn space.
     for (let i = 0; i < 8; i++) {
         const a = i * Math.PI / 4;
-        const x = cx + Math.cos(a) * BASE_RADIUS * 0.76;
-        const z = cz + Math.sin(a) * BASE_RADIUS * 0.76;
-        addBox(x - 1.32, cy - 0.32, z - 1.32, x + 1.32, cy + 0.12, z + 1.32);
+        addModule(Math.cos(a) * 5.5, Math.sin(a) * 5.5, 1.32, 1.32, -0.32, 0.12);
     }
+
+    // South approach: broad shallow steps frame a clear entrance into the courtyard.
+    addModule(0, -8.2, 2.8, 0.9, -0.12, 0.12);
+    addModule(0, -7.25, 2.35, 0.75, -0.08, 0.24);
+    addModule(0, -6.45, 1.9, 0.62, -0.04, 0.36);
+
+    // Broken gate piers preserve an open central route while giving the entry scale.
+    addModule(-4.65, -5.15, 0.7, 0.7, 0, 4.65);
+    addModule(4.65, -5.15, 0.62, 0.68, 0, 3.35);
+    addModule(-2.85, -5.05, 1.35, 0.48, 2.55, 3.18);
+
+    // Damaged side walls frame the courtyard but keep gaps for movement and sightlines.
+    addModule(-5.65, -1.9, 0.52, 1.55, -0.1, 1.7);
+    addModule(-5.48, 2.35, 0.56, 1.25, -0.1, 2.4);
+    addModule(5.6, -1.4, 0.52, 1.4, -0.1, 2.15);
+    addModule(5.45, 2.9, 0.58, 1.45, -0.1, 1.35);
 
     const pillars = [
         [-4.65, -3.55, 5.35, 0.52],
@@ -202,14 +222,25 @@ function buildMesh(scene, cx, cy, cz) {
     ];
     for (let i = 0; i < pillars.length; i++) {
         const [x, z, height, width] = pillars[i];
-        addBox(
-            cx + x - width, cy, cz + z - width,
-            cx + x + width, cy + height, cz + z + width
-        );
+        addModule(x, z, width, width, 0, height);
     }
 
-    // The fallen lintel spans the south entrance at a scale readable from spawn.
-    addBox(cx - 4.85, cy + 3.25, cz - 5.45, cx + 4.85, cy + 3.88, cz - 4.35);
+    // Tiered north altar makes the ruin read as a destination beyond the courtyard.
+    addModule(0, 5.15, 1.75, 1.25, -0.14, 0.52);
+    addModule(0, 5.15, 1.18, 0.84, 0.52, 1.05);
+    addModule(0, 5.15, 0.58, 0.42, 1.05, 1.72);
+
+    // Collapsed masonry collects at the edge of walls and pillars, never at spawn.
+    const rubble = [
+        [-4.2, -5.8, 0.72, 0.38, 0.38], [-5.0, -4.1, 0.48, 0.62, 0.52],
+        [4.0, -5.7, 0.68, 0.35, 0.44], [5.1, -3.1, 0.42, 0.72, 0.35],
+        [-5.2, 0.1, 0.7, 0.32, 0.38], [-4.2, 4.55, 0.58, 0.52, 0.46],
+        [5.15, 4.55, 0.75, 0.3, 0.34], [2.5, 5.8, 0.72, 0.42, 0.42],
+    ];
+    for (let i = 0; i < rubble.length; i++) {
+        const [x, z, halfX, halfZ, height] = rubble[i];
+        addModule(x, z, halfX, halfZ, -0.08, height);
+    }
 
     const vd = new VertexData();
     vd.positions = positions;
