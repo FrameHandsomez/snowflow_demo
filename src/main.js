@@ -28,6 +28,7 @@ import { SurfWake } from "./vfx/surfWake.js";
 import { SpellSystem } from "./spells/spellSystem.js";
 import { Overlay } from "./ui/overlay.js";
 import { Crosshair } from "./ui/crosshair.js";
+import { SkillBar } from "./ui/skillBar.js";
 import { Sky } from "./render/sky.js";
 import { ShadowSystem } from "./render/shadows.js";
 import { Terrain } from "./terrain/terrain.js";
@@ -165,6 +166,7 @@ async function boot() {
 
     const overlay = new Overlay({ rig, character });
     const crosshair = new Crosshair(S.crosshairCode);
+    const skillBar = new SkillBar();
     initInput(canvas, { onToggleOverlay: () => overlay.toggle() });
 
     // ------------------------------------------------------------- warm-up
@@ -280,6 +282,7 @@ async function boot() {
         sample(dtMs);
         checkSpike(dtMs);
         overlay.update(dtMs, engine);
+        skillBar.update(spells, dt);
 
         endFrame();
     });
@@ -289,7 +292,7 @@ async function boot() {
 
     globalThis.SNOWFLOW = {
         engine, scene, rig, character, figure, contact, spray, wake, spells,
-        overlay, crosshair, terrain, sky, shadows, post, depthPass,
+        overlay, crosshair, skillBar, terrain, sky, shadows, post, depthPass,
         S, input, perfStats: stats,
     };
 }

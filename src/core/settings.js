@@ -118,6 +118,8 @@ export const S = {
      * Paste a new one in F1 → HUD. Default = vcrdb "Small Dot".
      */
     crosshairCode: "0;P;d;1;f;0;0t;4;0l;1;0o;0;0a;1;0f;0;1b;0",
+    /** Bottom circular skill bar for spells 1–5. */
+    showSkillBar: true,
 };
 
 /**
@@ -210,6 +212,7 @@ export const SCHEMA = [
         group: "HUD",
         items: [
             { k: "showCrosshair", l: "Crosshair", t: "b" },
+            { k: "showSkillBar", l: "Skill bar", t: "b" },
         ],
     },
     {

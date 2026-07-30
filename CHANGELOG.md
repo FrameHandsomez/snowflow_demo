@@ -7,6 +7,22 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Skill bar HUD** (ล่างจอ, วงกลม 5 ช่อง แบบในภาพอ้างอิง)
+  - ไฟล์ใหม่: `src/ui/skillBar.js`
+  - แสดงสกิล 1–5: Sweep / Ribbon (hold) / Bloom / Crystallize / Vortex
+  - วง progress ตอน cast + ตัวเลขเวลาที่เหลือ · key จาก bindings · flow cost แต่ง (ไม่ gate)
+  - `SpellSystem.hudSlots()` สำหรับ snapshot ต่อเฟรม
+  - F1 → HUD → **Skill bar** (`S.showSkillBar`)
+
+### Fixed
+- Gameplay hint ยกขึ้นเหนือ skill bar โดยเว้นทั้ง heading และ flow-cost labels (desktop/mobile แยก spacing)
+- Dev server ที่ `localhost` และ `127.0.0.1` เคยเป็น Vite คนละ process; runtime ปัจจุบันรัน instance เดียวแบบ dual-stack (`npm run dev -- --host ::`)
+
+---
+
 ## [0.2.0] — 2026-07-30 — Frame playability pass
 
 **ธีมเวอร์ชัน:** เล่นได้จริง — ตั้งปุ่ม · crosshair · กระโดด/flip/ollie · เอกสาร handoff  
