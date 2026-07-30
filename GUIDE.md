@@ -25,7 +25,8 @@ snowflow_demo/
     │   └── …
     ├── ui/
     │   ├── overlay.js      # ★ F1 panel (Controls + HUD)
-    │   └── crosshair.js    # ★ reticle + import + color
+    │   ├── crosshair.js    # ★ reticle + import + color
+    │   └── skillBar.js     # ★ bottom spell HUD + responsive hint spacing
     ├── character/
     │   ├── controller.js   # ★ motion: walk/surf/jump/flip/ollie
     │   ├── figure.js       # ★ procedural skeleton pose
@@ -59,6 +60,7 @@ snowflow_demo/
 | Import โค้ด Valorant | `crosshair.js` `profileFromCode` | field ยังไม่ครบ 100% |
 | Settings ใหม่ใน F1 | `settings.js` `S` + `SCHEMA` | overlay สร้าง widget จาก schema |
 | ข้อความ hint ล่าง | `index.html` `#hint` | |
+| Skill bar ล่างจอ | `src/ui/skillBar.js` + `spells.hudSlots()` | F1 HUD `showSkillBar` | |
 | ลำดับระบบต่อเฟรม | `main.js` loop | poll → controller → figure → contact → camera… |
 
 ---

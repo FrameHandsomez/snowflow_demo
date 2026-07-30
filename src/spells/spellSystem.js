@@ -283,6 +283,75 @@ export class SpellSystem {
     }
 
     /**
+     * HUD snapshot for the bottom skill bar (5 slots, keys 1–5).
+     * Durations match each spell's internal life constants.
+     * @returns {{ id:number, name:string, active:boolean, hold:boolean, remaining:number, duration:number }[]}
+     */
+    hudSlots() {
+        // Keep numbers here in sync with each spell file's LIFE / timeline.
+        const SWEEP_LIFE = 2.4;
+        const BLOOM_LIFE = 1.75 + 3.4; // LIFE + FALLOUT
+        const CRYST_LIFE = 0.85 + 1.6; // plant window + active tail (cast phase)
+        const VORTEX_LIFE = 0.55 + 3.0 + 1.1; // RAMP + HOLD + FADE
+
+        const sw = this.sweep;
+        const rb = this.ribbon;
+        const bl = this.bloom;
+        const cr = this.crystallize;
+        const vx = this.vortex;
+
+        const rem = (active, t, life) => (active ? Math.max(0, life - t) : 0);
+
+        return [
+            {
+                id: 1,
+                name: "Sweep",
+                active: !!sw.active,
+                hold: false,
+                remaining: rem(sw.active, sw.t || 0, SWEEP_LIFE),
+                duration: SWEEP_LIFE,
+            },
+            {
+                id: 2,
+                name: "Ribbon",
+                active: !!rb.active,
+                hold: !!rb.held,
+                // While held: full bar. After throw: drain with blend if available.
+                remaining: rb.held
+                    ? 1
+                    : rb.active
+                        ? Math.max(0, rb.blend != null ? rb.blend : 0.5)
+                        : 0,
+                duration: 1,
+            },
+            {
+                id: 3,
+                name: "Bloom",
+                active: !!bl.active,
+                hold: false,
+                remaining: rem(bl.active, bl.t || 0, BLOOM_LIFE),
+                duration: BLOOM_LIFE,
+            },
+            {
+                id: 4,
+                name: "Crystallize",
+                active: !!cr.active,
+                hold: false,
+                remaining: rem(cr.active, cr.t || 0, CRYST_LIFE),
+                duration: CRYST_LIFE,
+            },
+            {
+                id: 5,
+                name: "Vortex",
+                active: !!vx.active,
+                hold: false,
+                remaining: rem(vx.active, vx.t || 0, VORTEX_LIFE),
+                duration: VORTEX_LIFE,
+            },
+        ];
+    }
+
+    /**
      * Register the ice formations with the depth prepass.
      *
      * Only the crystals: the water body is translucent and refractive, so a

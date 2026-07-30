@@ -20,6 +20,7 @@
 2. ตั้งปุ่มเองได้ (rebind 2 ช่อง)  
 3. Crosshair แบบ Valorant + import code + เลือกสี  
 4. กระโดด / double+flip / surf ollie + เก็บโมเมนตัมพอประมาณ  
+5. Skill bar สำหรับ spells 1–5 + HUD toggle และ spacing ที่ไม่บัง gameplay hint
 
 Frame ต้องการ **ทำต่อแนวตัวเอง** — เอกสารชุดนี้คือแผนที่ของ delta ทั้งหมด
 
@@ -30,7 +31,7 @@ Frame ต้องการ **ทำต่อแนวตัวเอง** — �
 ```bash
 cd "C:\Users\WHITEPERx\Documents\GitHub\snowflow_demo"
 npm install          # ถ้ายังไม่มี node_modules
-npm run dev          # http://localhost:5173/
+npm run dev -- --host ::  # instance เดียวสำหรับ localhost + 127.0.0.1
 ```
 
 ต้องการ: Chrome/Edge WebGPU (หรือ browser ที่รองรับ)
@@ -44,15 +45,17 @@ npm run dev          # http://localhost:5173/
 |---|---|
 | `src/core/bindings.js` | defaults, 2-slot binds, localStorage v2 |
 | `src/ui/crosshair.js` | draw + parse + profile + color |
+| `src/ui/skillBar.js` | spell HUD 5 ช่อง, key labels, active progress, hint spacing |
 | `CHANGELOG.md` / `HANDOFF.md` / `GUIDE.md` | เอกสาร Frame |
 
 ### ไฟล์แก้หลัก
 | ไฟล์ | ทำไมสำคัญ |
 |---|---|
 | `src/core/input.js` | poll bindings, jump edge, surf/sprint |
-| `src/core/settings.js` | `showCrosshair`, `crosshairCode`, HUD schema |
-| `src/ui/overlay.js` | Controls rebind UI + HUD crosshair panel |
-| `src/main.js` | `new Crosshair`, `SNOWFLOW.crosshair` |
+| `src/core/settings.js` | `showCrosshair`, `crosshairCode`, `showSkillBar`, HUD schema |
+| `src/ui/overlay.js` | Controls rebind UI + HUD crosshair / skill bar toggles |
+| `src/main.js` | mount Crosshair + SkillBar, exposes both on `SNOWFLOW` |
+| `src/spells/spellSystem.js` | `hudSlots()` snapshot ของ state spell ต่อ frame |
 | `src/character/controller.js` | jump / double / flip / ollie physics |
 | `src/character/figure.js` | air / flip / ollie pose |
 | `src/character/snowContact.js` | land + takeoff spray |
@@ -75,6 +78,7 @@ terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โค
 | **RMB hold** | snow-surf |
 | **RMB + Space** (บนบอร์ด) | surf ollie |
 | 1–5 | spells (2 = hold) |
+| Skill bar | แสดง cooldown / hold / key bindings ของ spells 1–5; ปิดได้ที่ F1 → HUD |
 | F1 / `` ` `` | settings |
 
 **กฎ jump ที่สำคัญ**
@@ -104,6 +108,7 @@ terrain, shaders, spells, post, sky, wake mesh หลัก, cloth solver โค
 SNOWFLOW.character   // CharacterController
 SNOWFLOW.figure      // Character (mesh wrapper) → .figure = Figure skeleton
 SNOWFLOW.crosshair   // Crosshair API
+SNOWFLOW.skillBar    // SkillBar API / DOM state
 SNOWFLOW.input       // raw input struct
 SNOWFLOW.S           // settings
 ```
@@ -150,7 +155,7 @@ SNOWFLOW.crosshair.applyCode("0;P;c;1;…")
 | ใส่ jump ตอน `surf > 0.5` ผิดเงื่อนไข | เคยบล็อก jump ทั้งก้อน |
 | `pollInput` / `endFrame` ลำดับใน `main.js` | `jumpPressed` ต้องมีชีวิตถึง `character.update` |
 | เซฟ localStorage เก่า | Space อาจยังผูก surf ถ้าไม่ migrate/reset |
-| Vite cache | เคยเจอ server เสิร์ฟ overlay เก่า — restart `npm run dev` + hard refresh |
+| Vite IPv4/IPv6 แยก process | `localhost` อาจวิ่ง `[::1]` แต่ `127.0.0.1` วิ่ง IPv4 และได้โค้ดคนละชุด — kill process เดิม แล้วรัน instance เดียวด้วย `npm run dev -- --host ::` |
 
 ---
 
@@ -159,6 +164,7 @@ SNOWFLOW.crosshair.applyCode("0;P;c;1;…")
 - [ ] `npm run dev` ขึ้น `http://localhost:5173/`
 - [ ] F1 → Controls เห็น **2 ช่อง** ต่อแถว + Jump
 - [ ] F1 → HUD crosshair เปิดได้ + import code + เปลี่ยนสี
+- [ ] Skill bar แสดง 5 ช่อง, key label ตรง bindings, และ gameplay hint ไม่ทับ bar
 - [ ] Space ×1 = กระโดดครั้งเดียว (ไม่ bunny-hop เอง)
 - [ ] Space ×2 ในอากาศ = ดีด + ม้วน
 - [ ] RMB surf + Space = ollie พุ่งตามบอร์ด (ไม่ไกลหลุดแมพ)
