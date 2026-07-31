@@ -39,12 +39,30 @@ curl http://localhost:2567/health
 ```
 ต้องได้ JSON มี `ok: true` และ `protocolVersion`
 
+### Redis (local Docker via WSL)
+```bash
+npm run redis:up
+npm run redis:ping    # ต้องได้ PONG
+# /health ควรมี redis: { configured: true, ok: true, ping: "PONG" }
+npm run redis:down    # หยุด container (ข้อมูลยังอยู่ใน volume)
+```
+ถ้า `redis:up` พัง: เปิด WSL Ubuntu แล้ว `docker info` — daemon ต้องรัน
+
 ### Client
 ```bash
 npm run dev:client
 # เปิด http://localhost:5173 — ต้อง boot SNOWFLOW แบบ offline ได้แม้ server ปิด
 npm run build:client
 ```
+
+### Multiplayer (Phase 1)
+```bash
+npm run dev:server
+npm run dev:client
+# Tab A + B: http://localhost:5173/?mp=1
+# หรือ DevTools: await SNOWFLOW.multiplayer.connect()
+```
+ถ้า join ไม่ขึ้น: ตรวจ Vite proxy `/colyseus`, `PROTOCOL_VERSION` (shared 0.2.x)
 
 ## 3. Protocol mismatch
 

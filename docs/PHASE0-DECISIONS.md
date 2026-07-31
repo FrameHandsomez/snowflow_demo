@@ -9,6 +9,8 @@
 | 2026-07-31 | Shared language | JS ESM + JSDoc ก่อน; TS ค่อยใส่ที่ schema ภายหลัง | ลด cost migrate ทั้ง demo ใน Phase 0 | ทำแล้ว |
 | 2026-07-31 | Net stack | Colyseus room `zone` + Express `/health` | ตรง roadmap Phase 0–1 | scaffold แล้ว |
 | 2026-07-31 | Data store | PostgreSQL + Redis — **ยังไม่ติดตั้ง** ใน Phase 0 scaffold | ยังไม่ persistence จน Phase 3; กัน scope creep | เลื่อน |
+| 2026-07-31 | Redis local | Docker Compose `redis:7-alpine` + `REDIS_URL` + server `/health.redis` | เตรียม presence/matchmaker; ยังไม่ใช้ใน ZoneRoom | ทำแล้ว (infra) |
+| 2026-07-31 | Postgres host | Supabase project `Road-Frontier` (Asia-Pacific) — secrets ใน `.env` เท่านั้น | จอง DB ก่อน Phase 3 auth/inventory | ทำแล้ว (infra only) |
 | TBD | Scope cut spells | เก็บ 5 spells ไว้ก่อน | demo ยังใช้โชว์ VFX; ตัดเมื่อเริ่ม combat จริง | เปิด |
 | TBD | Scope cut surf | เก็บ surf ไว้ก่อน | ตัวขายของ SNOWFLOW; ตัดเมื่อต้องการ perf ตัวละคร/มอนสเตอร์ | เปิด |
 | TBD | CI lint | build + shared tests ก่อน; ESLint ทีหลัง | เกณฑ์เขียวเร็วก่อน ruleset ยาว | บางส่วน |

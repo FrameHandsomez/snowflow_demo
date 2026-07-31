@@ -20,7 +20,11 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "check": "npm run build:shared && npm run typecheck && npm run build:client && npm run build:server",
-    "clean": "npm run clean --workspaces --if-present && rimraf node_modules packages/*/node_modules packages/*/dist"
+    "clean": "npm run clean --workspaces --if-present && rimraf node_modules packages/*/node_modules packages/*/dist",
+    "redis:up": "wsl -e bash -lc \"cd /mnt/c/Users/WHITEPERx/Documents/GitHub/snowflow_demo && docker compose up -d redis\"",
+    "redis:down": "wsl -e bash -lc \"cd /mnt/c/Users/WHITEPERx/Documents/GitHub/snowflow_demo && docker compose stop redis\"",
+    "redis:logs": "wsl -e bash -lc \"cd /mnt/c/Users/WHITEPERx/Documents/GitHub/snowflow_demo && docker compose logs -f redis\"",
+    "redis:ping": "wsl -e bash -lc \"docker exec snowflow-redis redis-cli ping\""
   },
   "engines": {
     "node": ">=20"

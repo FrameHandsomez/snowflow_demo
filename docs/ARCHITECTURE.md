@@ -19,9 +19,11 @@ snowflow_demo/
 │   │       └── rooms/ZoneRoom.js
 │   └── shared/                  # สัญญาเดียวระหว่าง client ↔ server
 │       └── src/
-│           ├── protocol.js      # PROTOCOL_VERSION, room names
-│           ├── constants.js     # tick, AOI, spawn
-│           └── schema/          # player + zone snapshots
+│           ├── protocol.js      # PROTOCOL_VERSION (0.2.x Phase 1)
+│           ├── messages.js      # MSG_MOVE / STATE / DEFORM…
+│           ├── aoi.js           # grid interest helpers
+│           ├── constants.js     # tick, AOI, spawn, move clamps
+│           └── schema/          # player + zone + deform
 ├── docs/
 │   ├── ARCHITECTURE.md          # ไฟล์นี้
 │   ├── FIX-RUNBOOK.md           # เวลาพัง ไล่ยังไง
@@ -56,16 +58,19 @@ server ✖ client
 |---------|---------|------|
 | Client (Vite) | `npm run dev:client` | 5173 |
 | Server (Colyseus) | `npm run dev:server` | 2567 |
-| Health | `GET http://localhost:2567/health` | |
+| Redis (Docker) | `npm run redis:up` | 6379 |
+| Health | `GET http://localhost:2567/health` | includes `redis` status |
 
 Vite proxies `/colyseus` → `localhost:2567` (WS).
+
+**Data boundary:** Postgres (Supabase) = durable account/character/inventory (Phase 3+); Redis = ephemeral presence / matchmaker / multi-instance pub-sub later. Zone gameplay state ยังอยู่ใน Colyseus memory — อย่าเขียนทุก frame ลง Redis/Postgres.
 
 ## 5. Phase map (code ownership)
 
 | Phase | แตะ package หลัก |
 |-------|------------------|
 | 0 Foundation | ทั้ง monorepo + shared contracts |
-| 1 Movement + AOI | server `ZoneRoom`, client `net/`, shared schema |
+| 1 Movement + AOI | server `ZoneRoom` move/deform+AOI, client `net/multiplayer`, shared 0.2 |
 | 2 Combat | server validate + client feel |
 | 3+ | ตาม roadmap — อย่ายัด logic ใหม่ลง `main.js` โดยไม่มี owner module |
 
@@ -80,7 +85,7 @@ packages/client/src/
   world/           shrine / demo scene content
   spells/          demo combat VFX (scope-cut candidate)
   ui/              DOM HUD + motion (GSAP) — ไม่ใช้ Babylon.GUI
-  net/             multiplayer session (Phase 0 stub)
+  net/             Phase 1: multiplayer.js, prediction, remotes, deformNet, session
   core/            settings, input, loading, perf
 ```
 

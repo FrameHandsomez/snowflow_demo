@@ -13,6 +13,19 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 **ก่อนหน้า:** courtyard pad / spawn ruin บน `main`
 
 ### Added
+- **Phase 1 multiplayer movement (vertical slice)**
+  - shared `PROTOCOL_VERSION` **0.3.0**: `MSG_MOVE` / `MSG_STATE` / `MSG_DEFORM*` / `MSG_SPELL*`, AOI helpers, deform and visual-spell contracts
+  - server `ZoneRoom`: validate move step/speed, AOI-filtered broadcast, deform relay, spell event format/target-range validation
+  - client `net/`: `Multiplayer`, `MoveSampler` (20Hz), `RemotePlayers` + full procedural `RemoteCharacter`, `DeformNet`, `SpellNet`
+  - remote hunters render as the existing procedural character; remote shadows are intentionally disabled until LOD exists
+  - spell keys 1–5 render for nearby peers; Ribbon sends start/release. Damage/cooldown authority remains Phase 2
+  - opt-in connect: `?mp=1` or `localStorage snowflow.mp=1` or `SNOWFLOW.multiplayer.connect()`
+  - offline demo still default; remote LOD / input-replay prediction ยังไม่
+- **Local Redis infra (Docker)**
+  - `docker-compose.yml` — `redis:7-alpine` on `6379`, AOF + named volume
+  - root scripts: `redis:up` / `redis:down` / `redis:logs` / `redis:ping` (via WSL Docker)
+  - server: `ioredis` + `dotenv` load monorepo `.env`; `GET /health` reports `redis` ping
+  - `REDIS_URL=redis://127.0.0.1:6379` — optional; empty disables; ZoneRoom ยังไม่พึ่ง Redis
 - **Phase 0 monorepo foundation (enterprise-lite)**
   - `packages/client` — ย้าย SNOWFLOW demo ทั้งก้อน (`src/`, `index.html`, Vite)
   - `packages/server` — Colyseus `ZoneRoom` + Express `GET /health` (port 2567)

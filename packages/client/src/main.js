@@ -30,6 +30,7 @@ import { Overlay } from "./ui/overlay.js";
 import { Crosshair } from "./ui/crosshair.js";
 import { SkillBar } from "./ui/skillBar.js";
 import { bindGsapToScene } from "./ui/motion.js";
+import { Multiplayer } from "./net/multiplayer.js";
 import { Sky } from "./render/sky.js";
 import { ShadowSystem } from "./render/shadows.js";
 import { Terrain } from "./terrain/terrain.js";
@@ -221,6 +222,17 @@ async function boot() {
     // their render pipelines to exist. See `WaterBody.warmUp`.
     spells.finishWarmUp();
 
+    // ------------------------------------------------------------- multiplayer (Phase 1)
+    // Opt-in: ?mp=1 or localStorage snowflow.mp=1 — offline demo stays default.
+    const multiplayer = new Multiplayer({
+        scene, character, rig, terrain, characterTerrain: shrine, sky, shadows, spray, spells,
+    });
+    if (Multiplayer.shouldAutoConnect()) {
+        multiplayer.connect().catch((err) => {
+            console.warn("[mp] auto-connect skipped:", err?.message || err);
+        });
+    }
+
     // ------------------------------------------------------------- run loop
     // HUD GSAP clock follows the scene loop (DOM motion — not Babylon.GUI).
     bindGsapToScene(scene);
@@ -250,6 +262,8 @@ async function boot() {
         // figure has been solved.
         figure.update(dt);
         contact.update(dt);
+        // Net sample after local sim so peers see the same planted pose.
+        multiplayer.update(dt);
         const tChar = performance.now();
 
         _vel.copyFrom(character.velocity);
@@ -274,6 +288,7 @@ async function boot() {
         // After the shadow refit, so the figure's uniforms carry this frame's
         // cascade matrices rather than last frame's.
         figure.sync(rig.camera.position);
+        multiplayer.sync(rig.camera.position);
         // Before the spray: the wake decides where its own lip is, and the
         // grains it sheds have to be in the pool before the pool is uploaded.
         wake.update(dt, rig.camera.position);
@@ -314,6 +329,7 @@ async function boot() {
     globalThis.SNOWFLOW = {
         engine, scene, rig, character, figure, contact, spray, wake, spells, shrine,
         overlay, crosshair, skillBar, terrain, sky, shadows, post, depthPass,
+        multiplayer,
         S, input, perfStats: stats,
     };
 }

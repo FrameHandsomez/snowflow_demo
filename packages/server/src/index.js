@@ -15,13 +15,16 @@ import {
     ROOM_NAME_ZONE,
     DEFAULT_ZONE_ID,
 } from "@snowflow/shared";
+import { config } from "./app.config.js";
 import { ZoneRoom } from "./rooms/ZoneRoom.js";
+import { connectRedis, disconnectRedis, redisHealth } from "./redis.js";
 
-const PORT = Number(process.env.PORT) || 2567;
-const HOST = process.env.HOST || "0.0.0.0";
+const PORT = config.port;
+const HOST = config.host;
 
 const app = express();
-app.get("/health", (_req, res) => {
+app.get("/health", async (_req, res) => {
+    const redis = await redisHealth();
     res.json({
         ok: true,
         service: "@snowflow/server",
@@ -29,6 +32,7 @@ app.get("/health", (_req, res) => {
         zone: DEFAULT_ZONE_ID,
         room: ROOM_NAME_ZONE,
         uptimeSec: Math.floor(process.uptime()),
+        redis,
     });
 });
 
@@ -46,17 +50,27 @@ const gameServer = new Server({
 
 gameServer.define(ROOM_NAME_ZONE, ZoneRoom);
 
+await connectRedis();
+
 httpServer.listen(PORT, HOST, () => {
     console.log(`[snowflow-server] listening on http://${HOST}:${PORT}`);
     console.log(`[snowflow-server] health  → GET /health`);
     console.log(`[snowflow-server] room    → "${ROOM_NAME_ZONE}" (protocol ${PROTOCOL_VERSION})`);
+    console.log(
+        `[snowflow-server] redis   → ${config.redisUrl ? config.redisUrl : "(disabled)"}`,
+    );
 });
 
-function shutdown(signal) {
+async function shutdown(signal) {
     console.log(`[snowflow-server] ${signal} — shutting down`);
+    await disconnectRedis();
     httpServer.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 5_000).unref();
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => {
+    void shutdown("SIGINT");
+});
+process.on("SIGTERM", () => {
+    void shutdown("SIGTERM");
+});

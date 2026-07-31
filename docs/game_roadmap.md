@@ -26,14 +26,16 @@
 **เป้าหมาย:** ผู้เล่นหลายคนเห็นกัน เดิน sync กันในโซนเดียว
 
 ### Task list
-- [ ] สร้าง Colyseus room สำหรับ 1 zone
-- [ ] State schema: position, rotation, animation state ของผู้เล่น
-- [ ] Client-side prediction + server reconciliation
-- [ ] Character LOD: ลด cost cloth/IK ของตัวละครที่อยู่ไกลกล้อง
-- [ ] Deformation event system: ส่ง event รอยเท้าแทน sync ทั้ง buffer
-- [ ] Client คำนวณผล deform เอง (deterministic) จาก event ที่รับ
-- [ ] **Interest Management (AOI)**: แบ่งโซนเป็น grid cell, sync state ให้ผู้เล่นเห็นเฉพาะคนที่อยู่ cell ใกล้ตัว — วางไว้ตั้งแต่ตอนนี้แม้คนเทสจะแค่ 2-3 คน เพราะ refactor ทีหลังยากกว่าออกแบบแต่แรกมาก (ป้องกันปัญหา O(n²) broadcast ตอนคนเยอะ)
+- [x] สร้าง Colyseus room สำหรับ 1 zone (`ZoneRoom` + MSG_MOVE/DEFORM)
+- [x] State schema: position, rotation, animation state ของผู้เล่น (`@snowflow/shared` 0.3.0)
+- [~] Client-side prediction + server reconciliation (local sim + move sample 20Hz + soft snap; full input replay ยังไม่)
+- [~] Remote character visual: ใช้ procedural `Character` เต็มตัวแทน capsule; ยังไม่มี LOD สำหรับ cloth/IK ระยะไกล
+- [x] Deformation event system: ส่ง event รอยเท้าแทน sync ทั้ง buffer (`MSG_DEFORM` / `MSG_DEFORM_EVENT`)
+- [x] Client คำนวณผล deform เอง (deterministic) จาก event ที่รับ (`deformNet.applyLocal`)
+- [x] Visual spell replication: AOI-broadcast (`MSG_SPELL` / `MSG_SPELL_EVENT`); damage/cooldown authority อยู่ Phase 2
+- [x] **Interest Management (AOI)**: grid cell + Chebyshev radius (`inAoi`, server `#broadcastInterest`)
 
+**วิธีเทสตอนนี้:** `npm run dev:server` + `npm run dev:client` แล้วเปิด `http://localhost:5173/?mp=1` สองแท็บ — เห็น remote character เต็มตัว, รอยเท้า peer, และ spell visual จาก peer
 **Done เมื่อ:** เปิด 2 browser tab เห็นตัวละครอีกฝั่งเดินตรงกัน หิมะยุบตามรอยเท้าทั้งสองฝั่งตรงกัน และ state ที่ sync มีแค่ entity ที่อยู่ใน AOI ของผู้เล่น (ตรวจสอบผ่าน log/network inspector ว่าไม่ส่งข้อมูลทุก entity ในโซนให้ทุกคน)
 
 ---

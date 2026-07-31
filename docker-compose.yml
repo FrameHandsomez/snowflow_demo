@@ -1,0 +1,26 @@
+# Local infra for Road-Frontier / SNOWFLOW
+# Redis: presence / matchmaking / pub-sub later (roadmap horizontal scaling)
+# Postgres stays on Supabase — not mirrored here.
+#
+# Start:  npm run redis:up
+# Stop:   npm run redis:down
+# Ping:   npm run redis:ping
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: snowflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - snowflow_redis_data:/data
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  snowflow_redis_data:

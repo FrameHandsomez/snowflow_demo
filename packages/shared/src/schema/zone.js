@@ -1,12 +1,10 @@
 /**
  * Zone room state contract (Phase 0 scaffold / Phase 1 fill-in).
- *
  * One Colyseus room ≈ one zone instance shard.
- * Players map is keyed by sessionId.
  */
 
 import { DEFAULT_ZONE_ID, PROTOCOL_VERSION } from "../protocol.js";
-import { MAX_PLAYERS_PER_ZONE } from "../constants.js";
+import { MAX_PLAYERS_PER_ZONE, SPAWN_POSITION } from "../constants.js";
 import { createPlayerSnapshot } from "./player.js";
 
 /**
@@ -38,7 +36,12 @@ export function createZoneSnapshot(patch = {}) {
  * @param {Partial<import('./player.js').PlayerSnapshot>} [pose]
  */
 export function addPlayer(zone, sessionId, pose = {}) {
-    zone.players[sessionId] = createPlayerSnapshot(sessionId, pose);
+    zone.players[sessionId] = createPlayerSnapshot(sessionId, {
+        x: SPAWN_POSITION.x,
+        y: SPAWN_POSITION.y,
+        z: SPAWN_POSITION.z,
+        ...pose,
+    });
     return zone.players[sessionId];
 }
 

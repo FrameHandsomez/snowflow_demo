@@ -9,11 +9,13 @@
     ".": "./src/index.js",
     "./schema/*": "./src/schema/*",
     "./protocol": "./src/protocol.js",
-    "./constants": "./src/constants.js"
+    "./constants": "./src/constants.js",
+    "./messages": "./src/messages.js",
+    "./aoi": "./src/aoi.js"
   },
   "scripts": {
     "build": "node -e \"console.log('@snowflow/shared: pure ESM, no build step')\"",
-    "typecheck": "node --check src/index.js && node --check src/protocol.js && node --check src/constants.js && node --check src/schema/player.js && node --check src/schema/zone.js",
+    "typecheck": "node --check src/index.js && node --check src/protocol.js && node --check src/constants.js && node --check src/messages.js && node --check src/aoi.js && node --check src/schema/player.js && node --check src/schema/zone.js && node --check src/schema/deform.js && node --check src/schema/spell.js",
     "test": "node --test src/**/*.test.js",
     "clean": "node -e \"\""
   },

@@ -5,7 +5,7 @@
  */
 
 /** Semver-ish: major = breaking schema, minor = additive, patch = docs/fix. */
-export const PROTOCOL_VERSION = "0.1.0";
+export const PROTOCOL_VERSION = "0.3.0";
 
 /** Colyseus room name for the open-world zone (Phase 1). */
 export const ROOM_NAME_ZONE = "zone";

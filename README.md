@@ -25,8 +25,9 @@ Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/FIX-RUNBOOK.md`](
 
 ```bash
 npm install
+npm run redis:up      # Redis on :6379 (WSL Docker) — optional for Phase 0–1
 npm run dev:client    # http://localhost:5173  (offline demo)
-npm run dev:server    # http://localhost:2567/health
+npm run dev:server    # http://localhost:2567/health  (includes redis status)
 npm run check         # shared + server syntax + client build
 ```
 

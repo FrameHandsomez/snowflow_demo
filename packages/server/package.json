@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "build": "node --check src/index.js && node --check src/app.config.js && node --check src/rooms/ZoneRoom.js",
-    "typecheck": "node --check src/index.js && node --check src/rooms/ZoneRoom.js",
+    "build": "node --check src/index.js && node --check src/app.config.js && node --check src/loadEnv.js && node --check src/rooms/ZoneRoom.js && node --check src/redis.js",
+    "typecheck": "node --check src/index.js && node --check src/rooms/ZoneRoom.js && node --check src/redis.js && node --check src/loadEnv.js",
     "clean": "rimraf dist"
   },
   "dependencies": {
@@ -17,6 +17,8 @@
     "@colyseus/ws-transport": "^0.16.0",
     "@snowflow/shared": "*",
     "colyseus": "^0.16.0",
-    "express": "^4.21.0"
+    "dotenv": "^16.6.1",
+    "express": "^4.21.0",
+    "ioredis": "^5.11.1"
   }
 }

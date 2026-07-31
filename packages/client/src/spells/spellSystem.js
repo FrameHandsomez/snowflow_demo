@@ -64,9 +64,11 @@ export class SpellSystem {
      * @param {import("../character/figure.js").Figure|null} figure
      * @param {import("../core/camera.js").CameraRig} rig
      * @param {import("../vfx/particles.js").SprayField} spray
+     * @param {{ inputEnabled?: boolean }} [opts]
      */
-    constructor(scene, sky, shadows, terrain, controller, figure, rig, spray) {
+    constructor(scene, sky, shadows, terrain, controller, figure, rig, spray, opts = {}) {
         this.lights = new SpellLights();
+        this.inputEnabled = opts.inputEnabled !== false;
         this.water = new WaterBody(scene, sky, shadows, this.lights);
         this.crystals = new CrystalField(scene, sky, shadows, this.lights);
 
@@ -115,6 +117,8 @@ export class SpellSystem {
         this._time = 0;
         /** Console override for the Ribbon hold. */
         this.debugRibbon = false;
+        /** Optional multiplayer hook. It receives a visual-only spell event. */
+        this.onSpellEvent = null;
     }
 
     /**
@@ -166,8 +170,9 @@ export class SpellSystem {
 
         this.lights.begin();
 
-        if (S.showSpells !== false) this._dispatch();
-        else this._cancelAll();
+        if (S.showSpells !== false) {
+            if (this.inputEnabled) this._dispatch();
+        } else this._cancelAll();
 
         for (let i = 0; i < this.spells.length; i++) this.spells[i].update(dt);
 
@@ -221,6 +226,7 @@ export class SpellSystem {
         this._lastCast = this._time;
 
         if (key === 1) {
+            this._emitSpell({ key, phase: "cast" });
             // Flat aim: the crescent runs along the ground, so a camera pointed
             // at the sky must not launch it into the air.
             const fl = Math.hypot(this.aim.x, this.aim.z) || 1;
@@ -248,12 +254,20 @@ export class SpellSystem {
                 this.aim.x, this.aim.y, this.aim.z,
                 22, 13
             );
+            this._emitSpell({
+                key,
+                phase: "cast",
+                targetX: _aim[0],
+                targetY: _aim[1],
+                targetZ: _aim[2],
+            });
             if (key === 3) this.bloom.trigger(_aim[0], _aim[1], _aim[2]);
             else this.crystallize.trigger(_aim[0], _aim[1], _aim[2]);
             return;
         }
 
         if (key === 5) {
+            this._emitSpell({ key, phase: "cast" });
             this.vortex.trigger();
             rig.addTrauma(0.10);
         }
@@ -265,10 +279,41 @@ export class SpellSystem {
             if (!this.ribbon.held) {
                 this.ribbon.trigger();
                 this._lastCast = this._time;
+                this._emitSpell({ key: 2, phase: "start" });
             }
         } else if (this.ribbon.held) {
             this.ribbon.release();
+            this._emitSpell({ key: 2, phase: "release" });
         }
+    }
+
+    /** @param {object} partial */
+    _emitSpell(partial) {
+        if (typeof this.onSpellEvent !== "function") return;
+        this.onSpellEvent({
+            ...partial,
+            aimX: this.aim.x,
+            aimY: this.aim.y,
+            aimZ: this.aim.z,
+        });
+    }
+
+    /** @param {import('@snowflow/shared').SpellEvent} event */
+    playRemote(event) {
+        this.aim.set(event.aimX, event.aimY, event.aimZ);
+        if (event.key === 1) {
+            this.sweep.trigger(event.aimX, event.aimZ);
+        } else if (event.key === 2) {
+            if (event.phase === "start") this.ribbon.trigger();
+            else if (event.phase === "release") this.ribbon.release();
+        } else if (event.key === 3) {
+            this.bloom.trigger(event.targetX, event.targetY, event.targetZ);
+        } else if (event.key === 4) {
+            this.crystallize.trigger(event.targetX, event.targetY, event.targetZ);
+        } else if (event.key === 5) {
+            this.vortex.trigger();
+        }
+        this._lastCast = this._time;
     }
 
     _cancelAll() {

@@ -99,13 +99,15 @@ export class Character {
      * @param {import("../render/sky.js").Sky} sky
      * @param {import("../render/shadows.js").ShadowSystem} shadows
      * @param {import("./controller.js").CharacterController} controller
+     * @param {{ castShadows?: boolean }} [opts]
      */
-    constructor(scene, terrain, sky, shadows, controller) {
+    constructor(scene, terrain, sky, shadows, controller, opts = {}) {
         this.scene = scene;
         this.terrain = terrain;
         this.sky = sky;
         this.shadows = shadows;
         this.controller = controller;
+        this._castsShadows = opts.castShadows !== false;
 
         this.figure = new Figure(terrain);
         this.panels = makePanels();
@@ -165,12 +167,14 @@ export class Character {
 
         /** @type {ShaderMaterial[]} */
         this._depthMats = [];
-        shadows.registerCaster(
-            this.bodyMesh, (c) => this._makeDepthMaterial("charDepth", c, false), CHAR_CASCADES
-        );
-        shadows.registerCaster(
-            this.clothMesh, (c) => this._makeDepthMaterial("clothDepth", c, true), CHAR_CASCADES
-        );
+        if (this._castsShadows) {
+            shadows.registerCaster(
+                this.bodyMesh, (c) => this._makeDepthMaterial("charDepth", c, false), CHAR_CASCADES
+            );
+            shadows.registerCaster(
+                this.clothMesh, (c) => this._makeDepthMaterial("clothDepth", c, true), CHAR_CASCADES
+            );
+        }
         // Fur is not registered as a caster. Its shadow lands inside the hood's
         // own, an alpha-tested 22-shell depth pass is not cheap, and what it
         // would contribute is a slightly fuzzier edge on a shadow already an
