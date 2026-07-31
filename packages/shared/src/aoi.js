@@ -42,3 +42,25 @@ export function inAoi(ox, oz, sx, sz, radiusCells = 1, cellSize = AOI_CELL_SIZE_
     const b = cellOf(sx, sz, cellSize);
     return cellChebyshev(a, b) <= radiusCells;
 }
+
+/**
+ * Diff two interest id sets (e.g. previous AOI peers vs current).
+ * @param {Iterable<string>} prev
+ * @param {Iterable<string>} next
+ * @returns {{ entered: string[], left: string[] }}
+ */
+export function diffInterest(prev, next) {
+    const a = prev instanceof Set ? prev : new Set(prev || []);
+    const b = next instanceof Set ? next : new Set(next || []);
+    /** @type {string[]} */
+    const entered = [];
+    /** @type {string[]} */
+    const left = [];
+    for (const id of b) {
+        if (!a.has(id)) entered.push(id);
+    }
+    for (const id of a) {
+        if (!b.has(id)) left.push(id);
+    }
+    return { entered, left };
+}

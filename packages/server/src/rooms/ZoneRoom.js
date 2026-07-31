@@ -1,15 +1,15 @@
 /**
- * ZoneRoom — one open-world shard (Phase 1 movement).
+ * ZoneRoom — one open-world shard (Phase 1 movement + AOI lifecycle).
  *
  * - join/leave + protocol handshake
- * - MSG_MOVE → validate step/speed → apply → AOI-filtered MSG_STATE
- * - MSG_DEFORM → normalize → AOI-filtered MSG_DEFORM_EVENT
- * - MSG_SPELL → validate visual event → AOI-filtered MSG_SPELL_EVENT
+ * - MSG_MOVE → validate → apply → AOI-filtered MSG_STATE
+ * - Interest enter/leave: MSG_PLAYER_JOINED / MSG_INTEREST_LEFT per observer
+ * - MSG_DEFORM / MSG_SPELL → AOI-filtered events
  *
  * Fix path when broken:
  * 1. GET /health
  * 2. Confirm PROTOCOL_VERSION match on welcome
- * 3. Log move rejects (verboseRoom=1)
+ * 3. VERBOSE_ROOM=1 for move/interest logs
  */
 
 import { Room } from "@colyseus/core";
@@ -25,6 +25,7 @@ import {
     applyMove,
     isValidPlayerPose,
     inAoi,
+    diffInterest,
     normalizeDeformEvent,
     normalizeSpellEvent,
     MSG_MOVE,
@@ -35,6 +36,7 @@ import {
     MSG_WELCOME,
     MSG_PLAYER_JOINED,
     MSG_PLAYER_LEFT,
+    MSG_INTEREST_LEFT,
     MSG_STATE,
     MSG_DEFORM_EVENT,
     MSG_SPELL_EVENT,
@@ -47,6 +49,13 @@ export class ZoneRoom extends Room {
 
     /** @type {Map<string, number>} last move wall-clock per session */
     #lastMoveAt = new Map();
+
+    /**
+     * Per-observer set of other sessionIds currently in their AOI.
+     * Used to emit enter/leave interest without client-side guessing.
+     * @type {Map<string, Set<string>>}
+     */
+    #interest = new Map();
 
     onCreate(options = {}) {
         this.zone = ZoneState.create({
@@ -99,6 +108,11 @@ export class ZoneRoom extends Room {
             updatedAt: Date.now(),
         });
         this.#lastMoveAt.set(client.sessionId, Date.now());
+        this.#interest.set(client.sessionId, new Set());
+
+        // Seed joiner's interest from current AOI (excludes self).
+        const seed = this.#computeInterestIds(client.sessionId);
+        this.#interest.set(client.sessionId, seed);
 
         client.send(MSG_WELCOME, {
             protocolVersion: PROTOCOL_VERSION,
@@ -109,30 +123,54 @@ export class ZoneRoom extends Room {
             players: this.#snapshotFor(client.sessionId),
         });
 
-        this.#broadcastInterest(
-            client.sessionId,
-            MSG_PLAYER_JOINED,
-            {
-                sessionId: client.sessionId,
-                displayName: name,
-                player,
-            },
-            true,
-        );
+        // Existing players who can see the joiner: enter interest + joined packet.
+        for (const other of this.clients) {
+            if (other.sessionId === client.sessionId) continue;
+            const obs = this.zone.players[other.sessionId];
+            if (!obs) continue;
+            if (!inAoi(obs.x, obs.z, player.x, player.z, AOI_RADIUS_CELLS)) continue;
+
+            let set = this.#interest.get(other.sessionId);
+            if (!set) {
+                set = new Set();
+                this.#interest.set(other.sessionId, set);
+            }
+            if (!set.has(client.sessionId)) {
+                set.add(client.sessionId);
+                other.send(MSG_PLAYER_JOINED, {
+                    sessionId: client.sessionId,
+                    displayName: name,
+                    player: this.#publicPlayer(player),
+                    reason: "enter",
+                });
+            }
+        }
+
+        // Joiner already has peers in welcome.players; interest set is seeded.
+        // Optionally notify joiner with explicit joined for each seed (welcome is enough).
 
         console.log(
-            `[ZoneRoom] join ${client.sessionId} as ${name} (${this.clients.length}/${this.maxClients})`,
+            `[ZoneRoom] join ${client.sessionId} as ${name} (${this.clients.length}/${this.maxClients}) interest=${seed.size}`,
         );
     }
 
     onLeave(client, code) {
-        ZoneState.removePlayer(this.zone, client.sessionId);
-        this.#lastMoveAt.delete(client.sessionId);
-        this.broadcast(MSG_PLAYER_LEFT, { sessionId: client.sessionId, code });
-        console.log(`[ZoneRoom] leave ${client.sessionId} code=${code}`);
+        const id = client.sessionId;
+        ZoneState.removePlayer(this.zone, id);
+        this.#lastMoveAt.delete(id);
+        this.#interest.delete(id);
+
+        // Drop id from every observer's interest set (room leave supersedes interest_left).
+        for (const set of this.#interest.values()) {
+            set.delete(id);
+        }
+
+        this.broadcast(MSG_PLAYER_LEFT, { sessionId: id, code });
+        console.log(`[ZoneRoom] leave ${id} code=${code}`);
     }
 
     onDispose() {
+        this.#interest.clear();
         console.log(`[ZoneRoom] dispose zone=${this.zone.zoneId} tick=${this.zone.tick}`);
     }
 
@@ -149,7 +187,11 @@ export class ZoneRoom extends Room {
 
         const now = Date.now();
         const prevT = this.#lastMoveAt.get(id) || now;
-        const dtSec = Math.max(0.016, Math.min(0.5, (now - prevT) / 1000));
+        // Wall-clock gap. Do NOT clamp a tiny gap up to 16ms for the speed check —
+        // that turns a 2 m sample 5 ms after join into "125 m/s" and freezes the
+        // player at spawn (every later step then fails MAX_MOVE_STEP from origin).
+        const wallDt = Math.max(0, (now - prevT) / 1000);
+        const dtSec = Math.min(0.5, Math.max(wallDt, 1 / TICK_RATE_HZ));
 
         const dx = payload.x - player.x;
         const dz = payload.z - player.z;
@@ -161,20 +203,27 @@ export class ZoneRoom extends Room {
             return;
         }
         const speed = dist / dtSec;
-        if (speed > MAX_MOVE_SPEED_MPS * 1.35) {
+        // Only enforce speed when we have a real sample interval (not a same-tick burst).
+        if (wallDt >= 1 / TICK_RATE_HZ && speed > MAX_MOVE_SPEED_MPS * 1.35) {
             if (config.verboseRoom) {
                 console.warn(`[ZoneRoom] move reject speed ${speed.toFixed(1)} sid=${id}`);
             }
             return;
         }
 
-        // seq must advance (or equal first frame)
         if (typeof payload.seq === "number" && payload.seq < player.seq) {
             return;
         }
 
         applyMove(player, payload, now);
         this.#lastMoveAt.set(id, now);
+
+        // AOI lifecycle for everyone who might see / stop seeing this mover (and vice versa).
+        try {
+            this.#reconcileInterestForMover(id);
+        } catch (err) {
+            console.error(`[ZoneRoom] interest reconcile failed sid=${id}`, err);
+        }
 
         this.#broadcastInterest(
             id,
@@ -185,6 +234,160 @@ export class ZoneRoom extends Room {
             },
             false,
         );
+    }
+
+    /**
+     * After `id` moved: update interest sets for the mover and all other players.
+     * Emits MSG_INTEREST_LEFT / MSG_PLAYER_JOINED as needed.
+     * @param {string} moverId
+     */
+    #reconcileInterestForMover(moverId) {
+        const mover = this.zone.players[moverId];
+        if (!mover) return;
+
+        // 1) Mover's own view of the world
+        this.#reconcileObserver(moverId);
+
+        // 2) Every other observer: did mover enter/leave *their* AOI?
+        for (const obsId of Object.keys(this.zone.players)) {
+            if (obsId === moverId) continue;
+            this.#reconcileObserverPair(obsId, moverId);
+        }
+    }
+
+    /**
+     * Full recompute of one observer's interest set vs all others.
+     * @param {string} observerId
+     */
+    #reconcileObserver(observerId) {
+        const next = this.#computeInterestIds(observerId);
+        let prev = this.#interest.get(observerId);
+        if (!prev) {
+            prev = new Set();
+            this.#interest.set(observerId, prev);
+        }
+        const { entered, left } = diffInterest(prev, next);
+        if (!entered.length && !left.length) {
+            this.#interest.set(observerId, next);
+            return;
+        }
+
+        const client = this.#clientById(observerId);
+        if (client) {
+            for (const sid of left) {
+                client.send(MSG_INTEREST_LEFT, {
+                    sessionId: sid,
+                    reason: "aoi",
+                    tick: this.zone.tick,
+                });
+                if (config.verboseRoom) {
+                    console.log(`[ZoneRoom] interest_left obs=${observerId} sid=${sid}`);
+                }
+            }
+            for (const sid of entered) {
+                const p = this.zone.players[sid];
+                if (!p) continue;
+                client.send(MSG_PLAYER_JOINED, {
+                    sessionId: sid,
+                    displayName: p.displayName,
+                    player: this.#publicPlayer(p),
+                    reason: "enter",
+                });
+                // Immediate pose so remote does not spawn at 0,0,0 until next move.
+                client.send(MSG_STATE, {
+                    tick: this.zone.tick,
+                    players: [this.#publicPlayer(p)],
+                });
+                if (config.verboseRoom) {
+                    console.log(`[ZoneRoom] interest_enter obs=${observerId} sid=${sid}`);
+                }
+            }
+        }
+        this.#interest.set(observerId, next);
+    }
+
+    /** @param {string} sessionId */
+    #clientById(sessionId) {
+        if (typeof this.clients.getById === "function") {
+            return this.clients.getById(sessionId);
+        }
+        for (let i = 0; i < this.clients.length; i++) {
+            if (this.clients[i].sessionId === sessionId) return this.clients[i];
+        }
+        return undefined;
+    }
+
+    /**
+     * Cheap pair update: only whether observer sees subject (mover).
+     * @param {string} observerId
+     * @param {string} subjectId
+     */
+    #reconcileObserverPair(observerId, subjectId) {
+        const obs = this.zone.players[observerId];
+        const sub = this.zone.players[subjectId];
+        if (!obs || !sub) return;
+
+        let set = this.#interest.get(observerId);
+        if (!set) {
+            set = new Set();
+            this.#interest.set(observerId, set);
+        }
+
+        const nowIn = inAoi(obs.x, obs.z, sub.x, sub.z, AOI_RADIUS_CELLS);
+        const wasIn = set.has(subjectId);
+
+        if (nowIn === wasIn) return;
+
+        const client = this.#clientById(observerId);
+        if (!client) {
+            if (nowIn) set.add(subjectId);
+            else set.delete(subjectId);
+            return;
+        }
+
+        if (nowIn && !wasIn) {
+            set.add(subjectId);
+            client.send(MSG_PLAYER_JOINED, {
+                sessionId: subjectId,
+                displayName: sub.displayName,
+                player: this.#publicPlayer(sub),
+                reason: "enter",
+            });
+            client.send(MSG_STATE, {
+                tick: this.zone.tick,
+                players: [this.#publicPlayer(sub)],
+            });
+            if (config.verboseRoom) {
+                console.log(`[ZoneRoom] interest_enter obs=${observerId} sid=${subjectId}`);
+            }
+        } else if (!nowIn && wasIn) {
+            set.delete(subjectId);
+            client.send(MSG_INTEREST_LEFT, {
+                sessionId: subjectId,
+                reason: "aoi",
+                tick: this.zone.tick,
+            });
+            if (config.verboseRoom) {
+                console.log(`[ZoneRoom] interest_left obs=${observerId} sid=${subjectId}`);
+            }
+        }
+    }
+
+    /**
+     * @param {string} observerId
+     * @returns {Set<string>}
+     */
+    #computeInterestIds(observerId) {
+        const obs = this.zone.players[observerId];
+        /** @type {Set<string>} */
+        const set = new Set();
+        if (!obs) return set;
+        for (const id of Object.keys(this.zone.players)) {
+            if (id === observerId) continue;
+            const p = this.zone.players[id];
+            if (inAoi(obs.x, obs.z, p.x, p.z, AOI_RADIUS_CELLS)) set.add(id);
+        }
+        return set;
     }
 
     /**
@@ -202,7 +405,6 @@ export class ZoneRoom extends Room {
         });
         if (!event) return;
 
-        // Soft clamp: deform origin must be near the player's pose
         const d = Math.hypot(event.x - player.x, event.z - player.z);
         if (d > 8) return;
 
@@ -210,7 +412,6 @@ export class ZoneRoom extends Room {
     }
 
     /**
-     * Validate visual spell data. Damage/cooldown authority belongs to Phase 2.
      * @param {import('colyseus').Client} client
      * @param {object} payload
      */
@@ -224,7 +425,6 @@ export class ZoneRoom extends Room {
 
         const event = normalizeSpellEvent({ ...payload, sessionId: id });
         if (!event) {
-            // Silent drops made multiplayer spell QA look like "no broadcast".
             console.warn(
                 `[ZoneRoom] spell drop sid=${id} reason=normalize`,
                 {
@@ -259,7 +459,6 @@ export class ZoneRoom extends Room {
     }
 
     /**
-     * Players visible to observer (including self).
      * @param {string} observerId
      */
     #snapshotFor(observerId) {

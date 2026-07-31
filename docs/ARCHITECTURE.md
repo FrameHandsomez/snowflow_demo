@@ -19,9 +19,9 @@ snowflow_demo/
 │   │       └── rooms/ZoneRoom.js
 │   └── shared/                  # สัญญาเดียวระหว่าง client ↔ server
 │       └── src/
-│           ├── protocol.js      # PROTOCOL_VERSION (0.2.x Phase 1)
-│           ├── messages.js      # MSG_MOVE / STATE / DEFORM…
-│           ├── aoi.js           # grid interest helpers
+│           ├── protocol.js      # PROTOCOL_VERSION (0.3.x Phase 1)
+│           ├── messages.js      # MSG_MOVE / STATE / DEFORM / INTEREST_LEFT…
+│           ├── aoi.js           # grid interest + diffInterest
 │           ├── constants.js     # tick, AOI, spawn, move clamps
 │           └── schema/          # player + zone + deform
 ├── docs/
@@ -70,7 +70,7 @@ Vite proxies `/colyseus` → `localhost:2567` (WS).
 | Phase | แตะ package หลัก |
 |-------|------------------|
 | 0 Foundation | ทั้ง monorepo + shared contracts |
-| 1 Movement + AOI | server `ZoneRoom` move/deform+AOI, client `net/multiplayer`, shared 0.2 |
+| 1 Movement + AOI | server `ZoneRoom` move/deform+AOI enter/leave, client `net/*`, shared 0.3.x |
 | 2 Combat | server validate + client feel |
 | 3+ | ตาม roadmap — อย่ายัด logic ใหม่ลง `main.js` โดยไม่มี owner module |
 

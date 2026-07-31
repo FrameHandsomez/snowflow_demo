@@ -21,8 +21,14 @@ export const MSG_WELCOME = "welcome";
 /** Server → client: another player entered interest. */
 export const MSG_PLAYER_JOINED = "player_joined";
 
-/** Server → client: player left. */
+/** Server → client: player left the room (disconnect). */
 export const MSG_PLAYER_LEFT = "player_left";
+
+/**
+ * Server → client: entity left *this observer's* AOI (still in room).
+ * Client must despawn the remote; do not treat as full disconnect.
+ */
+export const MSG_INTEREST_LEFT = "interest_left";
 
 /** Server → client: snapshot of players in AOI. */
 export const MSG_STATE = "state";

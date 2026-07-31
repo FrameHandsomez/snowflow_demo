@@ -29,13 +29,14 @@ export {
     MSG_WELCOME,
     MSG_PLAYER_JOINED,
     MSG_PLAYER_LEFT,
+    MSG_INTEREST_LEFT,
     MSG_STATE,
     MSG_DEFORM_EVENT,
     MSG_SPELL,
     MSG_SPELL_EVENT,
 } from "./messages.js";
 
-export { cellOf, cellChebyshev, inAoi } from "./aoi.js";
+export { cellOf, cellChebyshev, inAoi, diffInterest } from "./aoi.js";
 
 export {
     PlayerState,

@@ -3,6 +3,12 @@
  *
  * A remote uses the same procedural character renderer as the local hunter.
  * Network snapshots remain the source of truth; this class only smooths them.
+ *
+ * AOI lifecycle:
+ * - MSG_PLAYER_JOINED / welcome seed → create remote
+ * - MSG_STATE → upsert pose
+ * - MSG_INTEREST_LEFT → despawn (still in room, out of interest)
+ * - MSG_PLAYER_LEFT → despawn (left room)
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -10,8 +16,33 @@ import {
     MSG_STATE,
     MSG_PLAYER_JOINED,
     MSG_PLAYER_LEFT,
+    MSG_INTEREST_LEFT,
 } from "@snowflow/shared";
 import { RemoteCharacter } from "./remoteCharacter.js";
+
+function aoiDebugEnabled() {
+    try {
+        if (typeof localStorage !== "undefined") {
+            const v = localStorage.getItem("snowflow.mp.debug");
+            if (v === "0" || v === "false") return false;
+            if (v === "1" || v === "true") return true;
+        }
+        if (typeof location !== "undefined") {
+            const q = new URLSearchParams(location.search);
+            if (q.get("mpDebug") === "0") return false;
+            if (q.get("mp") === "1" || q.get("mpDebug") === "1") return true;
+        }
+    } catch {
+        /* ignore */
+    }
+    return false;
+}
+
+/** @param {...unknown} args */
+function logAoi(...args) {
+    if (!aoiDebugEnabled()) return;
+    console.info("[mp:aoi]", ...args);
+}
 
 export class RemotePlayers {
     /**
@@ -24,12 +55,14 @@ export class RemotePlayers {
      * @param {import('../render/shadows.js').ShadowSystem} opts.shadows
      * @param {import('../vfx/particles.js').SprayField} opts.spray
      * @param {(sessionId: string) => void} [opts.onRemoteReady] after visual is constructible
+     * @param {(sessionId: string, reason: string) => void} [opts.onRemoteRemoved]
      */
     constructor(opts) {
         this.scene = opts.scene;
         this.localSessionId = opts.localSessionId;
         this.opts = opts;
         this.onRemoteReady = opts.onRemoteReady || null;
+        this.onRemoteRemoved = opts.onRemoteRemoved || null;
         /** @type {Map<string, object>} */
         this.map = new Map();
     }
@@ -56,11 +89,20 @@ export class RemotePlayers {
         room.onMessage(MSG_PLAYER_JOINED, (msg) => {
             const p = msg?.player || msg;
             if (!p?.sessionId || p.sessionId === this.localSessionId) return;
+            logAoi("enter", p.sessionId, msg?.reason || "joined");
             this.upsert(p);
         });
 
         room.onMessage(MSG_PLAYER_LEFT, (msg) => {
-            if (msg?.sessionId) this.remove(msg.sessionId);
+            if (!msg?.sessionId) return;
+            logAoi("room_left", msg.sessionId);
+            this.remove(msg.sessionId, "room_left");
+        });
+
+        room.onMessage(MSG_INTEREST_LEFT, (msg) => {
+            if (!msg?.sessionId || msg.sessionId === this.localSessionId) return;
+            logAoi("interest_left", msg.sessionId, msg?.reason || "aoi");
+            this.remove(msg.sessionId, "aoi");
         });
     }
 
@@ -105,7 +147,6 @@ export class RemotePlayers {
             try {
                 remote.visual = new RemoteCharacter(this.opts);
                 this.map.set(p.sessionId, remote);
-                // Spell FX can play before cloth warm-up; flush any early spell_events.
                 this.onRemoteReady?.(p.sessionId);
                 remote.visual.prepare().catch((err) => {
                     console.error(
@@ -115,6 +156,7 @@ export class RemotePlayers {
                     remote.visual?.dispose();
                     this.map.delete(p.sessionId);
                 });
+                logAoi("spawn", p.sessionId);
             } catch (err) {
                 console.error(
                     `[mp] remote character creation failed sid=${p.sessionId}`,
@@ -140,12 +182,17 @@ export class RemotePlayers {
         if (typeof p.olliePhase === "number") remote.state.olliePhase = p.olliePhase;
     }
 
-    /** @param {string} sessionId */
-    remove(sessionId) {
+    /**
+     * @param {string} sessionId
+     * @param {string} [reason]
+     */
+    remove(sessionId, reason = "remove") {
         const remote = this.map.get(sessionId);
         if (!remote) return;
         remote.visual?.dispose();
         this.map.delete(sessionId);
+        this.onRemoteRemoved?.(sessionId, reason);
+        logAoi("despawn", sessionId, reason);
     }
 
     /** @param {number} dt */
@@ -171,7 +218,7 @@ export class RemotePlayers {
     }
 
     dispose() {
-        for (const id of [...this.map.keys()]) this.remove(id);
+        for (const id of [...this.map.keys()]) this.remove(id, "dispose");
     }
 
     get count() {

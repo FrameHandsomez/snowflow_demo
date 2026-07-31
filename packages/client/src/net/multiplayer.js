@@ -105,6 +105,26 @@ export class Multiplayer {
                 shadows: this.shadows,
                 spray: this.spray,
                 onRemoteReady: (sessionId) => this.spellNet.flush(sessionId),
+                onRemoteRemoved: (sessionId) => {
+                    // Drop remote ribbon ownership if that peer left interest/room.
+                    if (
+                        this.spells &&
+                        this.spells._ribbonOwner === "remote" &&
+                        this.spells._remoteRibbonSid === sessionId
+                    ) {
+                        try {
+                            this.spells.ribbon?.cancel?.();
+                        } catch {
+                            /* ignore */
+                        }
+                        this.spells._ribbonOwner = null;
+                        this.spells._remoteRibbonSid = null;
+                        if (this.spells.ctx) {
+                            this.spells.ctx.poseOverride = null;
+                            this.spells.ctx.applyTerrainEffect = true;
+                        }
+                    }
+                },
             });
             this.remotes.bindRoom(session.room, {
                 onLocalState: (p) => {

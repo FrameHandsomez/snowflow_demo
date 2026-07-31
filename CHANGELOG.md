@@ -10,9 +10,31 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 ## [Unreleased]
 
 **Branch:** `feature/foundation&decisions`  
-**ก่อนหน้า:** courtyard pad / spawn ruin บน `main`
+**ก่อนหน้า:** courtyard pad / spawn ruin บน `main`  
+**Wire protocol ปัจจุบัน:** `@snowflow/shared` **0.3.2**
+
+### Added
+- **AOI leave lifecycle (Phase 1 interest complete)** — protocol **0.3.2**
+  - `MSG_INTEREST_LEFT` when a peer leaves *this observer's* AOI (still in room; not a full disconnect)
+  - server per-observer interest sets; on move: leave + re-enter (`MSG_PLAYER_JOINED` + pose `MSG_STATE`)
+  - client `RemotePlayers` despawns on `interest_left`; room leave still uses `MSG_PLAYER_LEFT`
+  - shared `diffInterest()` + unit test; headless smoke `packages/server/scripts/aoi-interest-smoke.mjs`
+  - **Verified:** smoke PASS (leave + re-enter, `leaked_while_far=0`); shared tests 12/12
+- **Phase 1 multiplayer movement (vertical slice)**
+  - shared `PROTOCOL_VERSION` **0.3.x**: `MSG_MOVE` / `MSG_STATE` / `MSG_DEFORM*` / `MSG_SPELL*` / `MSG_INTEREST_LEFT`, AOI helpers, deform and visual-spell contracts
+  - server `ZoneRoom`: validate move step/speed, AOI-filtered broadcast + interest enter/leave, deform relay, spell event format/target-range validation
+  - client `net/`: `Multiplayer`, `MoveSampler` (20Hz), `RemotePlayers` + full procedural `RemoteCharacter`, `DeformNet`, `SpellNet`
+  - remote hunters render as the existing procedural character; remote shadows are intentionally disabled until LOD exists
+  - spell keys 1–5 render for nearby peers; Ribbon sends start/release. Damage/cooldown authority remains Phase 2
+  - jump/flip/ollie fields on move snapshots (`air` / `velY` / `jumpKind` / `flipAngle` / `flipTuck` / `flipping` / `olliePhase`) — since **0.3.1**
+  - opt-in connect: `?mp=1` or `localStorage snowflow.mp=1` or `SNOWFLOW.multiplayer.connect()`
+  - offline demo still default; remote LOD / input-replay prediction ยังไม่
+  - headless smokes: `packages/server/scripts/spell-broadcast-smoke.mjs`, `aoi-interest-smoke.mjs`
 
 ### Fixed
+- **Server move speed clamp (false rejects)**
+  - do not inflate tiny wall-clock gaps to 16 ms for speed math (was freezing peers at spawn: first sample “125 m/s”, then every later step failed `MAX_MOVE_STEP` from origin)
+  - speed check only when `wallDt >= 1/TICK_RATE_HZ`
 - **Remote spell VFX placement / visibility (Phase 1)**
   - `RemoteSpellFx.trigger` now snaps origin from the remote puppet on the same frame (no flash at world `0,0,0`)
   - brighter unlit materials, larger rings/beam/spikes, `renderingGroupId=1`
@@ -29,19 +51,9 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 - **Ribbon (key 2) hold multiplayer**
   - root cause: local `holdRibbon(false)` every frame released the shared ribbon after peer `start`
   - `_ribbonOwner` local|remote — peer hold survives until `phase:release`; pose refreshed each frame from remote puppet
-  - proxy ribbon is hold-aware (long duration + release tail); protocol **0.3.1** adds jump/flip fields on move snapshots
+  - proxy ribbon is hold-aware (long duration + release tail)
 - **Remote jump / flip / ollie pose**
   - move payload + server public player + remote puppet now carry `air/velY/jumpKind/flipAngle/flipTuck/flipping/olliePhase`
-
-### Added
-- **Phase 1 multiplayer movement (vertical slice)**
-  - shared `PROTOCOL_VERSION` **0.3.0**: `MSG_MOVE` / `MSG_STATE` / `MSG_DEFORM*` / `MSG_SPELL*`, AOI helpers, deform and visual-spell contracts
-  - server `ZoneRoom`: validate move step/speed, AOI-filtered broadcast, deform relay, spell event format/target-range validation
-  - client `net/`: `Multiplayer`, `MoveSampler` (20Hz), `RemotePlayers` + full procedural `RemoteCharacter`, `DeformNet`, `SpellNet`
-  - remote hunters render as the existing procedural character; remote shadows are intentionally disabled until LOD exists
-  - spell keys 1–5 render for nearby peers; Ribbon sends start/release. Damage/cooldown authority remains Phase 2
-  - opt-in connect: `?mp=1` or `localStorage snowflow.mp=1` or `SNOWFLOW.multiplayer.connect()`
-  - offline demo still default; remote LOD / input-replay prediction ยังไม่
 - **Local Redis infra (Docker)**
   - `docker-compose.yml` — `redis:7-alpine` on `6379`, AOF + named volume
   - root scripts: `redis:up` / `redis:down` / `redis:logs` / `redis:ping` (via WSL Docker)
@@ -111,6 +123,8 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 - Dev server ที่ `localhost` และ `127.0.0.1` เคยเป็น Vite คนละ process; runtime ปัจจุบันรัน instance เดียวแบบ dual-stack (`npm run dev -- --host ::`)
 
 ### Notes / risks
+- multiplayer wire: client กับ server ต้อง match `PROTOCOL_VERSION` major (ปัจจุบัน **0.3.2**); รีสตาร์ททั้งสอง process หลัง bump
+- AOI cell = 64 m, Chebyshev r=1 (3×3); ทดสอบ leave ต้องเดินห่าง ~2+ cells ไม่ใช่แค่ spawn ชิด
 - collision **ไม่** derive จาก mesh triangles หรือ Babylon picking
 - `stampSnow()` ต้องหลัง `terrain.warmUp()` ไม่งั้น brush ถูกล้าง
 - CPU ground = **macro + pad** เท่านั้น; GPU ยังวาง fine/deform บน base ที่ flatten แล้ว (ตั้งใจ)

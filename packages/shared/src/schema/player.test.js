@@ -7,7 +7,7 @@ import {
     inferAnim,
     applyMove,
 } from "./player.js";
-import { inAoi, cellOf } from "../aoi.js";
+import { inAoi, cellOf, diffInterest } from "../aoi.js";
 import { normalizeDeformEvent } from "./deform.js";
 import { normalizeSpellEvent } from "./spell.js";
 import { PROTOCOL_VERSION } from "../protocol.js";
@@ -55,6 +55,12 @@ describe("AOI", () => {
     it("inAoi keeps nearby, drops far", () => {
         assert.equal(inAoi(0, 0, 30, 30, 1, 64), true);
         assert.equal(inAoi(0, 0, 200, 0, 1, 64), false);
+    });
+
+    it("diffInterest reports enter and leave", () => {
+        const d = diffInterest(["a", "b"], ["b", "c"]);
+        assert.deepEqual(d.entered.sort(), ["c"]);
+        assert.deepEqual(d.left.sort(), ["a"]);
     });
 });
 
