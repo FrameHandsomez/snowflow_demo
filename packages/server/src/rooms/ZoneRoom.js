@@ -217,17 +217,43 @@ export class ZoneRoom extends Room {
     #onSpell(client, payload) {
         const id = client.sessionId;
         const player = this.zone.players[id];
-        if (!player) return;
+        if (!player) {
+            console.warn(`[ZoneRoom] spell drop sid=${id} reason=no-player`);
+            return;
+        }
 
         const event = normalizeSpellEvent({ ...payload, sessionId: id });
-        if (!event) return;
+        if (!event) {
+            // Silent drops made multiplayer spell QA look like "no broadcast".
+            console.warn(
+                `[ZoneRoom] spell drop sid=${id} reason=normalize`,
+                {
+                    key: payload?.key,
+                    phase: payload?.phase,
+                    seq: payload?.seq,
+                    aim: [payload?.aimX, payload?.aimY, payload?.aimZ],
+                    hasTarget: Number.isFinite(payload?.targetX),
+                },
+            );
+            return;
+        }
         if (event.key === 3 || event.key === 4) {
             const targetDistance = Math.hypot(
                 event.targetX - player.x,
                 event.targetY - player.y,
                 event.targetZ - player.z,
             );
-            if (targetDistance > 25) return;
+            if (targetDistance > 25) {
+                console.warn(
+                    `[ZoneRoom] spell drop sid=${id} reason=target-range d=${targetDistance.toFixed(2)} key=${event.key}`,
+                );
+                return;
+            }
+        }
+        if (config.verboseRoom) {
+            console.log(
+                `[ZoneRoom] spell ok sid=${id} key=${event.key} phase=${event.phase} seq=${event.seq}`,
+            );
         }
         this.#broadcastInterest(id, MSG_SPELL_EVENT, event, true);
     }
@@ -264,6 +290,13 @@ export class ZoneRoom extends Room {
             lean: p.lean,
             grounded: p.grounded,
             surfing: p.surfing,
+            air: p.air ?? 0,
+            velY: p.velY ?? 0,
+            jumpKind: p.jumpKind ?? 0,
+            flipAngle: p.flipAngle ?? 0,
+            flipTuck: p.flipTuck ?? 0,
+            flipping: !!p.flipping,
+            olliePhase: p.olliePhase ?? 0,
             seq: p.seq,
             updatedAt: p.updatedAt,
         };

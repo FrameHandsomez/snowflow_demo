@@ -12,6 +12,27 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 **Branch:** `feature/foundation&decisions`  
 **ก่อนหน้า:** courtyard pad / spawn ruin บน `main`
 
+### Fixed
+- **Remote spell VFX placement / visibility (Phase 1)**
+  - `RemoteSpellFx.trigger` now snaps origin from the remote puppet on the same frame (no flash at world `0,0,0`)
+  - brighter unlit materials, larger rings/beam/spikes, `renderingGroupId=1`
+  - `SpellNet` uses `SessionHandle.send` like deform; queues `spell_event` until remote visual exists
+  - server logs silent spell drops (`normalize` / target-range) for QA
+- **Remote spell proxy shape mapping (Phase 1)**
+  - key→mesh now matches full spell silhouette: Sweep = crescent sheets (not torus), Ribbon = strip, Bloom = fat column, Crystallize = short 6-gon prisms + ice plates in spiral (not tall spike boxes), Vortex = rings + core
+- **Remote full SpellSystem visual playback (Phase 1)**
+  - `SpellSystem.playVisual(event, { origin, applyTerrainEffect:false })` drives peer casts through real water/ice/lights/spray
+  - `ctx.deform` gated: `brush` no-op when `applyTerrainEffect` is false (no double snow; deform still via MSG_DEFORM*)
+  - poseOverride + gated controller/rig so Sweep/Ribbon/Vortex spawn at remote, not local hunter; camera trauma suppressed
+  - concurrent full remote cap (`MAX_FULL_REMOTE_SPELLS=2`); excess / error → `RemoteSpellFx` proxy fallback
+  - local cast always reclaims authority (`_beginLocalAuthority`) so input is not stuck on a remote pose
+- **Ribbon (key 2) hold multiplayer**
+  - root cause: local `holdRibbon(false)` every frame released the shared ribbon after peer `start`
+  - `_ribbonOwner` local|remote — peer hold survives until `phase:release`; pose refreshed each frame from remote puppet
+  - proxy ribbon is hold-aware (long duration + release tail); protocol **0.3.1** adds jump/flip fields on move snapshots
+- **Remote jump / flip / ollie pose**
+  - move payload + server public player + remote puppet now carry `air/velY/jumpKind/flipAngle/flipTuck/flipping/olliePhase`
+
 ### Added
 - **Phase 1 multiplayer movement (vertical slice)**
   - shared `PROTOCOL_VERSION` **0.3.0**: `MSG_MOVE` / `MSG_STATE` / `MSG_DEFORM*` / `MSG_SPELL*`, AOI helpers, deform and visual-spell contracts

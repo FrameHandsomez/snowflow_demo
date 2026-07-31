@@ -36,6 +36,16 @@ import { aimPoint, clamp01 } from "./bending.js";
 
 /**
  * @typedef {{
+ *   x: number, y: number, z: number,
+ *   facing: number,
+ *   forward: { x:number, y:number, z:number },
+ *   right: { x:number, y:number, z:number },
+ *   up: { x:number, y:number, z:number },
+ *   cast?: number,
+ *   castAimX?: number, castAimY?: number, castAimZ?: number,
+ * }} SpellPoseOverride
+ *
+ * @typedef {{
  *   controller: import("../character/controller.js").CharacterController,
  *   figure: import("../character/figure.js").Figure|null,
  *   rig: import("../core/camera.js").CameraRig,
@@ -47,12 +57,103 @@ import { aimPoint, clamp01 } from "./bending.js";
  *   lights: SpellLights,
  *   time: number,
  *   sprayScale: number,
+ *   applyTerrainEffect: boolean,
+ *   poseOverride: SpellPoseOverride | null,
  *   handPosition: (which:number, out:Float32Array, off:number) => void,
  * }} SpellContext
+ *
+ * applyTerrainEffect=false → deform.brush no-op (remote visual; no double snow).
+ * poseOverride → remote caster pose for Sweep/Ribbon/Vortex origin + aim basis.
  */
 
 const _aim = new Float32Array(3);
 const _hand = new Float32Array(3);
+
+/** Max simultaneous full remote spell visuals (perf). Excess → RemoteSpellFx proxy. */
+export const MAX_FULL_REMOTE_SPELLS = 2;
+
+/**
+ * Gate deform.brush so remote playback cannot double-write the snow buffer.
+ * @param {import("../terrain/deformation.js").DeformationField} real
+ * @param {() => boolean} isEnabled
+ */
+function gateDeform(real, isEnabled) {
+    if (!real) return real;
+    return new Proxy(real, {
+        get(target, prop, receiver) {
+            if (prop === "brush") {
+                return (...args) => {
+                    if (!isEnabled()) return;
+                    return target.brush(...args);
+                };
+            }
+            const v = Reflect.get(target, prop, receiver);
+            return typeof v === "function" ? v.bind(target) : v;
+        },
+    });
+}
+
+/**
+ * Gate camera trauma + prefer poseOverride basis vectors for ribbon/aim.
+ * @param {import("../core/camera.js").CameraRig} real
+ * @param {() => boolean} allowTrauma
+ * @param {() => SpellPoseOverride | null} getPose
+ */
+function gateRig(real, allowTrauma, getPose) {
+    return new Proxy(real, {
+        get(target, prop, receiver) {
+            const pose = getPose();
+            if (prop === "addTrauma") {
+                return (amount) => {
+                    if (!allowTrauma()) return;
+                    return target.addTrauma(amount);
+                };
+            }
+            if (pose) {
+                if (prop === "forward") return pose.forward;
+                if (prop === "right") return pose.right;
+                if (prop === "up") return pose.up;
+            }
+            const v = Reflect.get(target, prop, receiver);
+            return typeof v === "function" ? v.bind(target) : v;
+        },
+    });
+}
+
+/**
+ * Prefer poseOverride position/facing so Sweep/Vortex spawn at the remote caster.
+ * Cast stance writes go to the override (not the local hunter).
+ * @param {import("../character/controller.js").CharacterController} real
+ * @param {() => SpellPoseOverride | null} getPose
+ */
+function gateController(real, getPose) {
+    return new Proxy(real, {
+        get(target, prop, receiver) {
+            const pose = getPose();
+            if (pose) {
+                if (prop === "position") {
+                    return { x: pose.x, y: pose.y, z: pose.z };
+                }
+                if (prop === "facing") return pose.facing;
+                if (prop === "cast") return pose.cast ?? 0;
+                if (prop === "castAimX") return pose.castAimX ?? pose.forward.x;
+                if (prop === "castAimY") return pose.castAimY ?? pose.forward.y;
+                if (prop === "castAimZ") return pose.castAimZ ?? pose.forward.z;
+            }
+            const v = Reflect.get(target, prop, receiver);
+            return typeof v === "function" ? v.bind(target) : v;
+        },
+        set(target, prop, value) {
+            const pose = getPose();
+            if (pose && (prop === "cast" || prop === "castAimX" || prop === "castAimY" || prop === "castAimZ")) {
+                pose[prop] = value;
+                return true;
+            }
+            target[prop] = value;
+            return true;
+        },
+    });
+}
 
 export class SpellSystem {
     /**
@@ -72,21 +173,35 @@ export class SpellSystem {
         this.water = new WaterBody(scene, sky, shadows, this.lights);
         this.crystals = new CrystalField(scene, sky, shadows, this.lights);
 
+        /** Real local hunter — never replaced; wrappers read poseOverride on top. */
+        this._localController = controller;
+        this._localRig = rig;
+
         /** @type {SpellContext} */
         this.ctx = {
-            controller,
+            controller: null,
             figure: figure || null,
-            rig,
+            rig: null,
             terrain,
-            deform: terrain.deform,
+            deform: null,
             spray,
             water: this.water,
             crystals: this.crystals,
             lights: this.lights,
             time: 0,
             sprayScale: 1,
+            applyTerrainEffect: true,
+            poseOverride: null,
             handPosition: (which, out, off) => this._handPosition(which, out, off),
         };
+
+        this.ctx.controller = gateController(controller, () => this.ctx.poseOverride);
+        this.ctx.rig = gateRig(
+            rig,
+            () => this.ctx.applyTerrainEffect !== false && !this.ctx.poseOverride,
+            () => this.ctx.poseOverride,
+        );
+        this.ctx.deform = gateDeform(terrain.deform, () => this.ctx.applyTerrainEffect !== false);
 
         this.sweep = new Sweep(this.ctx);
         this.ribbon = new Ribbon(this.ctx);
@@ -119,6 +234,19 @@ export class SpellSystem {
         this.debugRibbon = false;
         /** Optional multiplayer hook. It receives a visual-only spell event. */
         this.onSpellEvent = null;
+
+        /** @type {Map<string, { key: number, phase: string, until: number }>} remote full-visual slots */
+        this._remoteFull = new Map();
+        this._brushSkipLog = 0;
+        /**
+         * Who currently drives the shared Ribbon instance.
+         * Local `_dispatch` polls hold every frame — without this, a peer start is
+         * released on the very next frame when local key 2 is up.
+         * @type {'local'|'remote'|null}
+         */
+        this._ribbonOwner = null;
+        /** @type {string|null} remote session holding ribbon (for pose refresh) */
+        this._remoteRibbonSid = null;
     }
 
     /**
@@ -139,6 +267,18 @@ export class SpellSystem {
      * sensible rather than from the origin.
      */
     _handPosition(which, out, off) {
+        // Remote visual playback: never sample the local figure's hands — that
+        // glued Ribbon (key 2) to the local hunter while peers saw nothing.
+        const pose = this.ctx.poseOverride;
+        if (pose) {
+            const fx = Math.sin(pose.facing);
+            const fz = Math.cos(pose.facing);
+            const side = which === 0 ? -0.28 : 0.28;
+            out[off] = pose.x + fx * 0.35 + Math.cos(pose.facing) * side;
+            out[off + 1] = pose.y + 1.25;
+            out[off + 2] = pose.z + fz * 0.35 - Math.sin(pose.facing) * side;
+            return;
+        }
         const fig = this.ctx.figure;
         if (fig && S.showCharacter !== false) {
             fig.handPosition(which, out, off);
@@ -164,9 +304,17 @@ export class SpellSystem {
         ctx.sprayScale = S.spellSpray;
         this.lights.scale = S.spellLight;
 
-        // Aim comes off the rig rather than the character: the player points
-        // with the camera, and the figure turns to follow.
-        this.aim.copyFrom(this.ctx.rig.forward);
+        // Expire remote full-visual slots so the concurrent cap frees up.
+        if (this._remoteFull.size) {
+            for (const [id, slot] of this._remoteFull) {
+                if (this._time >= slot.until) this._remoteFull.delete(id);
+            }
+        }
+
+        // Local aim always tracks the local camera. Remote playback steers Sweep /
+        // Ribbon / Vortex through ctx.poseOverride on the gated controller/rig —
+        // do not overwrite this.aim or the local hunter stops pointing correctly.
+        this.aim.copyFrom(this._localRig.forward);
 
         this.lights.begin();
 
@@ -175,17 +323,32 @@ export class SpellSystem {
         } else this._cancelAll();
 
         for (let i = 0; i < this.spells.length; i++) this.spells[i].update(dt);
+        this._syncRibbonOwner();
 
         // The casting stance eases in while anything is up and out again after.
-        // Nothing about it is a switch.
+        // Nothing about it is a switch. Skip writing cast onto the local hunter
+        // while we are driving a remote pose (would flash the local figure).
         const casting =
             this.ribbon.active || this._time - this._lastCast < 0.55 ? 1 : 0;
         this.castBlend = expDamp(this.castBlend, casting, casting ? 7.0 : 3.2, dt);
-        const ch = this.ctx.controller;
-        ch.cast = this.castBlend;
-        ch.castAimX = this.aim.x;
-        ch.castAimY = this.aim.y;
-        ch.castAimZ = this.aim.z;
+        if (!ctx.poseOverride) {
+            const ch = this._localController;
+            ch.cast = this.castBlend;
+            ch.castAimX = this.aim.x;
+            ch.castAimY = this.aim.y;
+            ch.castAimZ = this.aim.z;
+        }
+
+        // Clear poseOverride when no remote-driven spell is still active.
+        // Keep override while remote ribbon is held (hold is multi-second).
+        if (
+            ctx.poseOverride &&
+            !this._hasActiveSpell() &&
+            !(this._ribbonOwner === "remote" && this.ribbon.held)
+        ) {
+            ctx.poseOverride = null;
+            ctx.applyTerrainEffect = true;
+        }
 
         // Everything outside the spell system that answers a spell light, after
         // the last declaration and before anything renders.
@@ -195,6 +358,22 @@ export class SpellSystem {
 
         this.water.update(dt, cameraPos);
         this.crystals.update(dt, cameraPos);
+    }
+
+    /** @returns {boolean} */
+    _hasActiveSpell() {
+        for (let i = 0; i < this.spells.length; i++) {
+            if (this.spells[i].active) return true;
+        }
+        return false;
+    }
+
+    /**
+     * How many full remote spell visuals are currently reserved under the cap.
+     * @returns {number}
+     */
+    get remoteFullCount() {
+        return this._remoteFull.size;
     }
 
     _dispatch() {
@@ -207,6 +386,15 @@ export class SpellSystem {
     }
 
     /**
+     * Local input always owns terrain + camera trauma. Clears any remote pose
+     * hijack so Sweep/Vortex spawn at the local hunter again.
+     */
+    _beginLocalAuthority() {
+        this.ctx.poseOverride = null;
+        this.ctx.applyTerrainEffect = true;
+    }
+
+    /**
      * Fire one spell, by key.
      *
      * Separated from the input poll so the console or a future rebind can cast
@@ -215,8 +403,9 @@ export class SpellSystem {
      * @param {number} key 1..5
      */
     cast(key) {
+        this._beginLocalAuthority();
         const ctx = this.ctx;
-        const rig = ctx.rig;
+        const rig = this._localRig;
 
         if (key === 2) {
             this.holdRibbon(true);
@@ -273,17 +462,76 @@ export class SpellSystem {
         }
     }
 
-    /** @param {boolean} held */
+    /**
+     * Local hold poll. Never steals / releases a ribbon owned by remote playback.
+     * @param {boolean} held
+     */
     holdRibbon(held) {
         if (held) {
+            // Local press always wins the shared ribbon instance.
+            if (this._ribbonOwner === "remote") {
+                this.ribbon.cancel?.();
+                this._ribbonOwner = null;
+                this._remoteRibbonSid = null;
+            }
             if (!this.ribbon.held) {
+                this._beginLocalAuthority();
+                this._ribbonOwner = "local";
                 this.ribbon.trigger();
                 this._lastCast = this._time;
                 this._emitSpell({ key: 2, phase: "start" });
             }
-        } else if (this.ribbon.held) {
+        } else if (this.ribbon.held && this._ribbonOwner === "local") {
+            this._beginLocalAuthority();
             this.ribbon.release();
             this._emitSpell({ key: 2, phase: "release" });
+            this._ribbonOwner = null;
+        }
+        // If owner is remote: ignore local key-up — wait for peer MSG_SPELL release.
+    }
+
+    /**
+     * Keep remote ribbon tip at the moving peer while held.
+     * @param {string} sessionId
+     * @param {{ x:number, y:number, z:number }} origin
+     * @param {{ x:number, y:number, z:number }} [aim]
+     */
+    refreshRemotePose(sessionId, origin, aim) {
+        if (this._ribbonOwner !== "remote") return;
+        if (this._remoteRibbonSid && sessionId && this._remoteRibbonSid !== sessionId) return;
+        if (!this.ctx.poseOverride || !origin) return;
+        const p = this.ctx.poseOverride;
+        p.x = Number(origin.x) || p.x;
+        p.y = Number(origin.y) || p.y;
+        p.z = Number(origin.z) || p.z;
+        if (aim) {
+            const ax = Number(aim.x) || 0;
+            const ay = Number(aim.y) || 0;
+            const az = Number(aim.z) || 1;
+            const al = Math.hypot(ax, ay, az) || 1;
+            p.forward.x = ax / al;
+            p.forward.y = ay / al;
+            p.forward.z = az / al;
+            p.facing = Math.atan2(p.forward.x, p.forward.z);
+            p.castAimX = p.forward.x;
+            p.castAimY = p.forward.y;
+            p.castAimZ = p.forward.z;
+            // Rebuild right/up lightly for Lissajous plane.
+            let rx = -p.forward.z;
+            let rz = p.forward.x;
+            let rl = Math.hypot(rx, rz) || 1;
+            rx /= rl;
+            rz /= rl;
+            p.right.x = rx;
+            p.right.y = 0;
+            p.right.z = rz;
+            p.up.x = p.forward.y * rz;
+            p.up.y = p.forward.z * rx - p.forward.x * rz;
+            p.up.z = -p.forward.y * rx;
+            const ul = Math.hypot(p.up.x, p.up.y, p.up.z) || 1;
+            p.up.x /= ul;
+            p.up.y /= ul;
+            p.up.z /= ul;
         }
     }
 
@@ -298,22 +546,203 @@ export class SpellSystem {
         });
     }
 
-    /** @param {import('@snowflow/shared').SpellEvent} event */
-    playRemote(event) {
-        this.aim.set(event.aimX, event.aimY, event.aimZ);
-        if (event.key === 1) {
-            this.sweep.trigger(event.aimX, event.aimZ);
-        } else if (event.key === 2) {
-            if (event.phase === "start") this.ribbon.trigger();
-            else if (event.phase === "release") this.ribbon.release();
-        } else if (event.key === 3) {
-            this.bloom.trigger(event.targetX, event.targetY, event.targetZ);
-        } else if (event.key === 4) {
-            this.crystallize.trigger(event.targetX, event.targetY, event.targetZ);
-        } else if (event.key === 5) {
-            this.vortex.trigger();
+    /**
+     * Visual-only playback for a networked spell (peer cast).
+     *
+     * - Does **not** emit onSpellEvent (already on the wire).
+     * - `applyTerrainEffect: false` by default → deform.brush no-op (no double snow).
+     * - Injects caster origin/aim so Sweep/Ribbon/Vortex do not spawn on the local hunter.
+     * - Concurrent full visuals are capped; caller should fall back to RemoteSpellFx
+     *   when this returns false.
+     *
+     * @param {import('@snowflow/shared').SpellEvent} event
+     * @param {object} [opts]
+     * @param {{ x:number, y:number, z:number }} [opts.origin] remote caster world pos
+     * @param {boolean} [opts.applyTerrainEffect=false]
+     * @param {string} [opts.slotId] stable id for concurrent cap (sessionId)
+     * @returns {boolean} true if full SpellSystem accepted the cast
+     */
+    playVisual(event, opts = {}) {
+        if (!event || !event.key) return false;
+
+        const applyTerrain = opts.applyTerrainEffect === true;
+        const origin = opts.origin || null;
+        const slotId = opts.slotId || event.sessionId || `anon-${event.seq ?? 0}`;
+
+        // Concurrent cap — only for remote (terrain-off) playback.
+        if (!applyTerrain) {
+            const existing = this._remoteFull.get(slotId);
+            // Same peer ribbon start/release shares one slot.
+            if (!existing && this._remoteFull.size >= MAX_FULL_REMOTE_SPELLS) {
+                return false;
+            }
         }
+
+        const ax = Number.isFinite(event.aimX) ? event.aimX : 0;
+        const ay = Number.isFinite(event.aimY) ? event.aimY : 0;
+        const az = Number.isFinite(event.aimZ) ? event.aimZ : 1;
+        const al = Math.hypot(ax, ay, az) || 1;
+        const fx = ax / al;
+        const fy = ay / al;
+        const fz = az / al;
+
+        // Camera-style basis from aim (ribbon figure-eight plane).
+        let rx = -fz;
+        let rz = fx;
+        let rl = Math.hypot(rx, rz);
+        if (rl < 1e-4) {
+            rx = 1;
+            rz = 0;
+            rl = 1;
+        } else {
+            rx /= rl;
+            rz /= rl;
+        }
+        const right = { x: rx, y: 0, z: rz };
+        // up ≈ forward × right
+        const up = {
+            x: fy * rz - fz * 0,
+            y: fz * rx - fx * rz,
+            z: fx * 0 - fy * rx,
+        };
+        const ul = Math.hypot(up.x, up.y, up.z) || 1;
+        up.x /= ul;
+        up.y /= ul;
+        up.z /= ul;
+
+        const ox = origin ? Number(origin.x) || 0 : this._localController.position.x;
+        const oy = origin ? Number(origin.y) || 0 : this._localController.position.y;
+        const oz = origin ? Number(origin.z) || 0 : this._localController.position.z;
+        const facing = Math.atan2(fx, fz);
+
+        this.ctx.applyTerrainEffect = applyTerrain;
+        this.ctx.poseOverride = {
+            x: ox,
+            y: oy,
+            z: oz,
+            facing,
+            forward: { x: fx, y: fy, z: fz },
+            right,
+            up,
+            cast: 1,
+            castAimX: fx,
+            castAimY: fy,
+            castAimZ: fz,
+        };
+
+        this.aim.set(fx, fy, fz);
         this._lastCast = this._time;
+
+        try {
+            if (event.key === 1) {
+                const flat = Math.hypot(fx, fz) || 1;
+                this.sweep.trigger(fx / flat, fz / flat);
+                if (this.sweep.strand < 0 || !this.sweep.active) {
+                    throw new Error("sweep strand unavailable");
+                }
+            } else if (event.key === 2) {
+                if (event.phase === "release") {
+                    // Only release if we own the remote hold (or nothing is held — throw flash).
+                    if (this._ribbonOwner === "local") {
+                        // Local is mid-hold; don't clobber — peer release is visual-only via proxy.
+                        this.ctx.poseOverride = null;
+                        this.ctx.applyTerrainEffect = true;
+                        return false;
+                    }
+                    if (!this.ribbon.held && !this.ribbon.active) {
+                        this.ribbon._seeded = false;
+                        this.ribbon.trigger();
+                    }
+                    this.ribbon.release();
+                    this._ribbonOwner = null;
+                    this._remoteRibbonSid = null;
+                } else {
+                    // Peer start: take ownership so local holdRibbon(false) cannot kill it.
+                    if (this._ribbonOwner === "local" && this.ribbon.held) {
+                        // Local ribbon active — refuse full path (caller → proxy).
+                        this.ctx.poseOverride = null;
+                        this.ctx.applyTerrainEffect = true;
+                        return false;
+                    }
+                    this.ribbon._seeded = false;
+                    this.ribbon.trigger();
+                    if (this.ribbon.strand < 0 || !this.ribbon.held) {
+                        throw new Error("ribbon strand unavailable");
+                    }
+                    this._ribbonOwner = "remote";
+                    this._remoteRibbonSid = slotId;
+                }
+            } else if (event.key === 3) {
+                this.bloom.trigger(
+                    Number(event.targetX) || ox + fx * 8,
+                    Number.isFinite(event.targetY) ? event.targetY : oy,
+                    Number(event.targetZ) || oz + fz * 8,
+                );
+                if (this.bloom.strand < 0 && !this.bloom.active) {
+                    throw new Error("bloom strand unavailable");
+                }
+            } else if (event.key === 4) {
+                this.crystallize.trigger(
+                    Number(event.targetX) || ox + fx * 8,
+                    Number.isFinite(event.targetY) ? event.targetY : oy,
+                    Number(event.targetZ) || oz + fz * 8,
+                );
+            } else if (event.key === 5) {
+                this.vortex.trigger();
+                if (this.vortex.strands?.every((s) => s < 0)) {
+                    throw new Error("vortex strands unavailable");
+                }
+            } else {
+                this.ctx.poseOverride = null;
+                this.ctx.applyTerrainEffect = true;
+                return false;
+            }
+        } catch (err) {
+            console.warn("[spells] playVisual failed", err?.message || err);
+            this.ctx.poseOverride = null;
+            this.ctx.applyTerrainEffect = true;
+            return false;
+        }
+
+        if (!applyTerrain) {
+            // Ribbon hold: keep slot open until release (or long safety timeout).
+            const life =
+                event.key === 1 ? 2.4
+                : event.key === 2
+                    ? (event.phase === "release" ? 2.0 : 120)
+                : event.key === 3 ? 5.2
+                : event.key === 4 ? 2.5
+                : 4.65;
+            this._remoteFull.set(slotId, {
+                key: event.key,
+                phase: event.phase || "cast",
+                until: this._time + life + 0.35,
+            });
+            if (event.key === 2 && event.phase === "release") {
+                this._remoteFull.delete(slotId);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * After ribbon ends (local or remote), drop owner so the next cast is clean.
+     * Called from update when ribbon becomes inactive.
+     */
+    _syncRibbonOwner() {
+        if (this._ribbonOwner && !this.ribbon.active && !this.ribbon.held) {
+            this._ribbonOwner = null;
+            this._remoteRibbonSid = null;
+        }
+    }
+
+    /**
+     * @deprecated use playVisual — kept so older call sites do not crash.
+     * @param {import('@snowflow/shared').SpellEvent} event
+     */
+    playRemote(event) {
+        return this.playVisual(event, { applyTerrainEffect: false });
     }
 
     _cancelAll() {

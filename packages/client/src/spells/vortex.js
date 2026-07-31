@@ -85,10 +85,11 @@ export class Vortex {
             return;
         }
 
-        // The column follows the player. It is *their* vortex — walking out of
-        // it would be the single most effect-like thing it could do.
-        this.x = ctx.controller.position.x;
-        this.z = ctx.controller.position.z;
+        // The column follows the caster. poseOverride (remote playback) wins so
+        // a peer vortex does not stick to the local hunter.
+        const pose = ctx.poseOverride;
+        this.x = pose ? pose.x : ctx.controller.position.x;
+        this.z = pose ? pose.z : ctx.controller.position.z;
 
         const env = smooth01(this.t / RAMP) * (1 - smooth01((this.t - RAMP - HOLD) / FADE));
         // Spins up and keeps spinning: the rotation does not ease out with the

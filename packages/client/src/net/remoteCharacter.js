@@ -106,9 +106,25 @@ export class RemoteCharacter {
         p.surf = state.surfing ? 1 : 0;
         p.surfActive = !!state.surfing;
         p.lean = state.lean;
-        p.grounded = !!state.grounded;
-        p.air = state.grounded ? 0 : 1;
-        p.stepping = state.anim === "walk" || state.anim === "run" || state.anim === "surf";
+        p.grounded = state.grounded !== false;
+        // Prefer networked air/flip/ollie so peers see jump + front-flip + ollie pose.
+        p.air = typeof state.air === "number"
+            ? state.air
+            : (p.grounded ? 0 : 1);
+        p.velY = typeof state.velY === "number" ? state.velY : (dy / safeDt);
+        p.jumpKind = state.jumpKind | 0;
+        p.flipAngle = typeof state.flipAngle === "number" ? state.flipAngle : 0;
+        p.flipTuck = typeof state.flipTuck === "number" ? state.flipTuck : 0;
+        p.flipping = !!state.flipping || state.anim === "flip" || p.jumpKind === 2;
+        p.olliePhase = typeof state.olliePhase === "number" ? state.olliePhase : 0;
+        p.surfAir = p.olliePhase > 0.05 || p.jumpKind === 3 ? Math.max(p.surfAir, 0.85) : p.surf * 0.5;
+        if (p.jumpKind > 0 && p.jumpPulse < 0.2) p.jumpPulse = 0.55;
+        else p.jumpPulse = Math.max(0, p.jumpPulse - dt * 3.5);
+
+        p.stepping =
+            !p.flipping &&
+            p.grounded &&
+            (state.anim === "walk" || state.anim === "run" || state.anim === "surf");
         if (p.stepping) p.gaitPhase = (p.gaitPhase + dt * p.speed * 0.42) % 1;
 
         this._lastX = state.x;
@@ -120,13 +136,27 @@ export class RemoteCharacter {
         this.spells.update(this.puppet.position, dt);
     }
 
-    /** @param {import('@snowflow/shared').SpellEvent} event */
-    playSpell(event) {
+    /**
+     * Aim-only nudge when full SpellSystem is playing the VFX (no proxy mesh).
+     * @param {import('@snowflow/shared').SpellEvent} event
+     */
+    noteSpell(event) {
         this.rig.forward.set(event.aimX, event.aimY, event.aimZ);
         this.puppet.castAimX = event.aimX;
         this.puppet.castAimY = event.aimY;
         this.puppet.castAimZ = event.aimZ;
-        this.spells.trigger(event);
+        this.puppet.cast = 1;
+    }
+
+    /**
+     * Proxy fallback when full SpellSystem is at cap or throws.
+     * @param {import('@snowflow/shared').SpellEvent} event
+     */
+    playSpell(event) {
+        this.noteSpell(event);
+        // Snap FX origin to current puppet pose on the same frame as the event
+        // (do not wait for the next update, or rings flash at world 0,0,0).
+        this.spells.trigger(event, this.puppet.position);
     }
 
     /** @param {import('@babylonjs/core/Maths/math.vector').Vector3} cameraPos */

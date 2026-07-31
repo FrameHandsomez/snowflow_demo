@@ -37,6 +37,9 @@ export class MoveSampler {
         const surfing = !!(character.surfActive || (character.surf ?? 0) > 0.55);
         const grounded = !!character.grounded;
         const speed01 = character.speed01 ?? 0;
+        const flipping = !!character.flipping;
+        const jumpKind = character.jumpKind | 0;
+        const olliePhase = character.olliePhase ?? 0;
         const payload = {
             x: character.position.x,
             y: character.position.y,
@@ -47,7 +50,21 @@ export class MoveSampler {
             lean: character.lean ?? 0,
             grounded,
             surfing,
-            anim: inferAnim({ speed01, grounded, surfing }),
+            air: character.air ?? (grounded ? 0 : 1),
+            velY: character.velY ?? 0,
+            jumpKind,
+            flipAngle: character.flipAngle ?? 0,
+            flipTuck: character.flipTuck ?? 0,
+            flipping,
+            olliePhase,
+            anim: inferAnim({
+                speed01,
+                grounded,
+                surfing,
+                flipping,
+                jumpKind,
+                olliePhase,
+            }),
             seq: this.seq,
         };
         session.send(MSG_MOVE, payload);

@@ -23,11 +23,13 @@ export class RemotePlayers {
      * @param {import('../render/sky.js').Sky} opts.sky
      * @param {import('../render/shadows.js').ShadowSystem} opts.shadows
      * @param {import('../vfx/particles.js').SprayField} opts.spray
+     * @param {(sessionId: string) => void} [opts.onRemoteReady] after visual is constructible
      */
     constructor(opts) {
         this.scene = opts.scene;
         this.localSessionId = opts.localSessionId;
         this.opts = opts;
+        this.onRemoteReady = opts.onRemoteReady || null;
         /** @type {Map<string, object>} */
         this.map = new Map();
     }
@@ -90,12 +92,21 @@ export class RemotePlayers {
                     grounded: p.grounded !== false,
                     surfing: !!p.surfing,
                     anim: p.anim || "idle",
+                    air: p.air ?? 0,
+                    velY: p.velY ?? 0,
+                    jumpKind: p.jumpKind ?? 0,
+                    flipAngle: p.flipAngle ?? 0,
+                    flipTuck: p.flipTuck ?? 0,
+                    flipping: !!p.flipping,
+                    olliePhase: p.olliePhase ?? 0,
                 },
                 visual: null,
             };
             try {
                 remote.visual = new RemoteCharacter(this.opts);
                 this.map.set(p.sessionId, remote);
+                // Spell FX can play before cloth warm-up; flush any early spell_events.
+                this.onRemoteReady?.(p.sessionId);
                 remote.visual.prepare().catch((err) => {
                     console.error(
                         `[mp] remote character warm-up failed sid=${p.sessionId}`,
@@ -120,6 +131,13 @@ export class RemotePlayers {
         remote.state.grounded = p.grounded !== false;
         remote.state.surfing = !!p.surfing;
         remote.state.anim = p.anim || remote.state.anim;
+        if (typeof p.air === "number") remote.state.air = p.air;
+        if (typeof p.velY === "number") remote.state.velY = p.velY;
+        if (typeof p.jumpKind === "number") remote.state.jumpKind = p.jumpKind;
+        if (typeof p.flipAngle === "number") remote.state.flipAngle = p.flipAngle;
+        if (typeof p.flipTuck === "number") remote.state.flipTuck = p.flipTuck;
+        if (typeof p.flipping === "boolean") remote.state.flipping = p.flipping;
+        if (typeof p.olliePhase === "number") remote.state.olliePhase = p.olliePhase;
     }
 
     /** @param {string} sessionId */

@@ -48,10 +48,20 @@ export class Multiplayer {
             getSessionId: () => this.session?.sessionId || null,
         });
         this._stopPing = null;
+        // Same SessionHandle shape as DeformNet (session.send → room.send).
+        // Remote spells prefer full SpellSystem (terrain off); proxy if cap/error.
         this.spellNet = new SpellNet({
-            getSession: () => this.session?.room || null,
+            getSession: () => this.session,
             getSessionId: () => this.session?.sessionId || null,
             getRemote: (sessionId) => this.remotes?.getVisual(sessionId) || null,
+            playFull: (event, origin) => {
+                if (!this.spells || typeof this.spells.playVisual !== "function") return false;
+                return this.spells.playVisual(event, {
+                    origin,
+                    applyTerrainEffect: false,
+                    slotId: event.sessionId,
+                });
+            },
         });
         this.connected = false;
         this.lastError = null;
@@ -94,6 +104,7 @@ export class Multiplayer {
                 sky: this.sky,
                 shadows: this.shadows,
                 spray: this.spray,
+                onRemoteReady: (sessionId) => this.spellNet.flush(sessionId),
             });
             this.remotes.bindRoom(session.room, {
                 onLocalState: (p) => {
@@ -140,6 +151,7 @@ export class Multiplayer {
 
     /**
      * Per-frame: sample local move, lerp remotes, emit foot deform,
+     * refresh remote ribbon pose while peer holds key 2.
      * @param {number} dt
      */
     update(dt) {
@@ -149,6 +161,21 @@ export class Multiplayer {
         });
         this.remotes?.update(dt);
         this.deformNet.onLocalFootfall(this.character);
+
+        // Keep full-system remote ribbon tip on the moving peer (hold skill).
+        if (
+            this.spells &&
+            this.spells._ribbonOwner === "remote" &&
+            this.spells._remoteRibbonSid &&
+            typeof this.spells.refreshRemotePose === "function"
+        ) {
+            const sid = this.spells._remoteRibbonSid;
+            const vis = this.remotes?.getVisual(sid);
+            const pos = vis?.puppet?.position;
+            if (pos) {
+                this.spells.refreshRemotePose(sid, pos, vis.rig?.forward || null);
+            }
+        }
     }
 }
 
