@@ -306,16 +306,19 @@ SNOWFLOW.wake   // local wake
 
 ## 8) งานที่ค้าง / แนวทางต่อได้ (รวมของเก่า + ใหม่)
 
-1. **Manual WebGPU walk QA** ขอบ blend + 2-client remote surf  
-2. **Commit** แยกก้อน: pose 0.3.3 · remote snow FX · docs  
-3. (Optional) remote wake `registerPrepass`  
-4. (Phase 2) `DeformNet` continuous surf / damage authority  
-5. **Altar interaction zone** (checkpoint / unlock) — แยก volume จาก collision  
-6. **Respawn** ผูก `SHRINE_SPAWN` หรือ checkpoint  
-7. **Shrine presentation** — VFX / spell-light / frost mask  
-8. **Feel** — จูน ollie / flip / coyote  
-9. **Optional hero asset** `.glb` (license, shadow, prepass, collision แยก)  
-10. Remote LOD / shadows  
+### ปิดแล้ว (2026-08-01)
+1. ~~2-client remote surf / spell / AOI QA~~ — Frame ยืนยันผ่าน  
+2. ~~Commit + push~~ — `4ea6b64` บน `feature/foundation&decisions`  
+3. ~~อัปเดต `docs/game_roadmap.md` Phase 1~~ ให้ตรงสถานะ  
+
+### ถัดไป (ลำดับแนะนำ)
+1. **Phase 2 Combat** — HP/ATK contract, hit feel + server validate, dummy monster, death/respawn  
+2. (Optional Phase 1 polish) remote wake `registerPrepass` · remote LOD/shadow · `DeformNet kind:surf`  
+3. **Altar interaction zone** (checkpoint / unlock) — แยก volume จาก collision  
+4. **Respawn** ผูก `SHRINE_SPAWN` หรือ checkpoint (player death อยู่ Phase 2/MVP)  
+5. **Shrine presentation** — VFX / spell-light / frost mask  
+6. **Feel** — จูน ollie / flip / coyote  
+7. **Optional hero asset** `.glb` (license, shadow, prepass, collision แยก)  
 
 ---
 
@@ -374,6 +377,6 @@ MP remote snow (session 2026-08-01): RemoteCharacter owns SnowContact+SurfWake f
 ใช้ spellTerrain.deform + shared spray — อย่า inject snow เข้า Character core
 DeformNet ยัง foot-only; continuous surf authority = Phase 2
 
-Next: commit working tree (pose 0.3.3 + remote snow + docs) → 2-client QA
+Phase 1 vertical slice ปิด 2026-08-01 (QA + push 4ea6b64). Next = Phase 2 combat core.
 ทุก commit อัปเดต CHANGELOG; merge HANDOFF อย่า replace ทั้งก้อน; อย่า commit package-lock/.zcode
 ```

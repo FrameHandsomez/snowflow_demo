@@ -41,6 +41,10 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
   - offline demo still default; remote LOD / input-replay prediction ยังไม่
   - headless smokes: `packages/server/scripts/spell-broadcast-smoke.mjs`, `aoi-interest-smoke.mjs`
 
+### Docs
+- **`docs/game_roadmap.md`** — Phase 0/1 status ตรง 2026-08-01: Phase 1 vertical slice **ปิด** (protocol 0.3.3, 2-client QA ผ่าน, tip `4ea6b64`); next = Phase 2 combat; ค้าง prediction replay / remote LOD / surf deform authority แยกเป็น polish
+- **`docs/HANDOFF.md`** — next actions เลื่อนไป Phase 2 หลัง Frame ยืนยัน QA + push
+
 ### Fixed
 - **Remote snow-surf FX missing for peer A (observer)**
   - root cause: Phase 1 remote puppet had pose (`surf`/`carve`/speed) but **no** local `SnowContact` / `SurfWake` — only the local hunter stamped snow

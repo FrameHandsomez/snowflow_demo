@@ -17,26 +17,35 @@
 - [ ] แบ่งงานทีม: client, server, content/design (รอคนร่วม)
 
 **Done เมื่อ:** รัน client+server local เชื่อมกันได้ ตัวละครเดินในโซนของ SNOWFLOW ผ่าน network (ยังไม่มี combat)  
-**สถานะ 2026-07-31:** client offline build ผ่าน · server `/health` ผ่าน · **ยังไม่** sync ตัวละครผ่าน network (เป็น Phase 1)
+**สถานะ 2026-08-01:** monorepo นิ่ง · offline + `?mp=1` เชื่อม `ZoneRoom` ได้ · **Phase 0 foundation ปิดในทางปฏิบัติ** (แบ่งงานทีมยังรอคน) · รายละเอียด network = Phase 1 ด้านล่าง
 
 ---
 
 ## Phase 1 — Multiplayer Movement
-**ระยะเวลา:** 2-4 สัปดาห์
+**ระยะเวลา:** 2-4 สัปดาห์  
+**สถานะ:** **ปิด vertical slice 2026-08-01** (protocol `@snowflow/shared` **0.3.3**)  
 **เป้าหมาย:** ผู้เล่นหลายคนเห็นกัน เดิน sync กันในโซนเดียว
 
 ### Task list
 - [x] สร้าง Colyseus room สำหรับ 1 zone (`ZoneRoom` + MSG_MOVE/DEFORM)
-- [x] State schema: position, rotation, animation state ของผู้เล่น (`@snowflow/shared` 0.3.x) + jump/flip fields
-- [~] Client-side prediction + server reconciliation (local sim + move sample 20Hz + soft snap; full input replay ยังไม่)
-- [~] Remote character visual: ใช้ procedural `Character` เต็มตัวแทน capsule; ยังไม่มี LOD สำหรับ cloth/IK ระยะไกล
-- [x] Deformation event system: ส่ง event รอยเท้าแทน sync ทั้ง buffer (`MSG_DEFORM` / `MSG_DEFORM_EVENT`)
-- [x] Client คำนวณผล deform เอง (deterministic) จาก event ที่รับ (`deformNet.applyLocal`)
-- [x] Visual spell replication: AOI-broadcast (`MSG_SPELL` / `MSG_SPELL_EVENT`); damage/cooldown authority อยู่ Phase 2
-- [x] **Interest Management (AOI)**: grid + Chebyshev; `#broadcastInterest`; **leave lifecycle** `MSG_INTEREST_LEFT` + re-enter (protocol 0.3.2)
+- [x] State schema: position, rotation, animation state ของผู้เล่น (`@snowflow/shared` **0.3.3**) + jump/flip + **surf/carve/gait/cast**
+- [~] Client-side prediction + server reconciliation (local sim + move sample 20Hz + soft snap / welcome pose; **full input replay ยังไม่** — เก็บเป็น polish)
+- [~] Remote character visual: procedural `Character` เต็มตัว + pose fidelity (surf/cast/jump); **LOD / remote shadow ยังไม่**
+- [x] Deformation event system: รอยเท้า `MSG_DEFORM` / `MSG_DEFORM_EVENT` + client `deformNet.applyLocal`
+- [x] Observer snow-surf FX: remote `SnowContact` + `SurfWake` จาก puppet pose (ไม่ sync buffer ทั้งก้อน; continuous surf wire = optional Phase 2 polish)
+- [x] Visual spell replication: AOI-broadcast (`MSG_SPELL` / `MSG_SPELL_EVENT`); full SpellSystem cap + proxy; **damage/cooldown authority → Phase 2**
+- [x] **Interest Management (AOI)**: grid + Chebyshev; leave lifecycle `MSG_INTEREST_LEFT` + re-enter (0.3.2+)
+- [x] 2-client manual QA ผ่าน (Frame 2026-08-01): เห็น peer · walk/surf · ร่องหิมะ/wake · spell · AOI despawn/re-enter
+- [x] Push branch `feature/foundation&decisions` tip `4ea6b64` (pose 0.3.3 + observer snow FX + docs)
 
-**วิธีเทสตอนนี้:** `npm run dev:server` + `npm run dev:client` แล้วเปิด `http://localhost:5173/?mp=1` สองแท็บ — remote เต็มตัว, รอยเท้า, spell; เดินห่าง ~2+ cell (64 m) ต้อง despawn (`interest_left`) แล้วกลับเมื่อเข้าใกล้
-**Done เมื่อ:** 2 tab เห็นกัน เดินตรง หิมะยุบตรงกัน และ sync เฉพาะ AOI — **รวม leave: client ไม่ค้าง remote นอก interest**
+**วิธีเทส:** `npm run dev:server` + `npm run dev:client` แล้วเปิด `http://localhost:5173/?mp=1` สองแท็บ (หรือสอง browser)  
+**คาดหวัง:** remote เต็มตัว + ท่า surf/cast/jump · รอยเท้า · ร่อง surf/wake บน observer · spell VFX · เดินห่าง ~2+ cell (64 m) → `interest_left` despawn → เข้าใกล้ re-enter
+
+**Done เมื่อ:** 2 tab เห็นกัน เดิน/surf ตรง หิมะอ่านได้ และ sync เฉพาะ AOI รวม leave — **ผ่าน 2026-08-01**
+
+**ค้างเป็น Phase 1 polish / Phase 2 (ไม่บล็อกปิด slice):** full input-replay prediction · remote LOD/shadow · `DeformNet` continuous `kind:surf` authority · remote wake prepass · spell damage/CD server-side
+
+**Next:** เข้า **Phase 2 — Combat Core** (HP/ATK, hit + server validate, dummy monster, death/respawn)
 
 ---
 
