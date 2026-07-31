@@ -34,12 +34,23 @@ export class MoveSampler {
         this._acc %= period;
         this.seq += 1;
 
-        const surfing = !!(character.surfActive || (character.surf ?? 0) > 0.55);
+        // Send both boolean and eased blend — remotes need the blend for board pitch.
+        const surf = Number(character.surf) || 0;
+        const surfing = !!(character.surfActive || surf > 0.35);
         const grounded = !!character.grounded;
         const speed01 = character.speed01 ?? 0;
         const flipping = !!character.flipping;
         const jumpKind = character.jumpKind | 0;
         const olliePhase = character.olliePhase ?? 0;
+        const cast = character.cast ?? 0;
+        // Normalize cast aim so remotes get a unit direction for arm IK.
+        let cax = character.castAimX ?? 0;
+        let cay = character.castAimY ?? 0;
+        let caz = character.castAimZ ?? 1;
+        const cl = Math.hypot(cax, cay, caz) || 1;
+        cax /= cl;
+        cay /= cl;
+        caz /= cl;
         const payload = {
             x: character.position.x,
             y: character.position.y,
@@ -50,6 +61,13 @@ export class MoveSampler {
             lean: character.lean ?? 0,
             grounded,
             surfing,
+            surf,
+            carve: character.carve ?? 0,
+            gaitPhase: character.gaitPhase ?? 0,
+            cast,
+            castAimX: cax,
+            castAimY: cay,
+            castAimZ: caz,
             air: character.air ?? (grounded ? 0 : 1),
             velY: character.velY ?? 0,
             jumpKind,

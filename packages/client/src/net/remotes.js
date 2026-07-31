@@ -133,6 +133,13 @@ export class RemotePlayers {
                     lean: p.lean || 0,
                     grounded: p.grounded !== false,
                     surfing: !!p.surfing,
+                    surf: p.surf ?? (p.surfing ? 1 : 0),
+                    carve: p.carve ?? 0,
+                    gaitPhase: p.gaitPhase ?? 0,
+                    cast: p.cast ?? 0,
+                    castAimX: p.castAimX ?? 0,
+                    castAimY: p.castAimY ?? 0,
+                    castAimZ: p.castAimZ ?? 1,
                     anim: p.anim || "idle",
                     air: p.air ?? 0,
                     velY: p.velY ?? 0,
@@ -173,6 +180,15 @@ export class RemotePlayers {
         remote.state.grounded = p.grounded !== false;
         remote.state.surfing = !!p.surfing;
         remote.state.anim = p.anim || remote.state.anim;
+        if (typeof p.surf === "number") remote.state.surf = p.surf;
+        else if (p.surfing) remote.state.surf = Math.max(remote.state.surf || 0, 0.85);
+        else remote.state.surf = Math.min(remote.state.surf || 0, 0.15);
+        if (typeof p.carve === "number") remote.state.carve = p.carve;
+        if (typeof p.gaitPhase === "number") remote.state.gaitPhase = p.gaitPhase;
+        if (typeof p.cast === "number") remote.state.cast = p.cast;
+        if (typeof p.castAimX === "number") remote.state.castAimX = p.castAimX;
+        if (typeof p.castAimY === "number") remote.state.castAimY = p.castAimY;
+        if (typeof p.castAimZ === "number") remote.state.castAimZ = p.castAimZ;
         if (typeof p.air === "number") remote.state.air = p.air;
         if (typeof p.velY === "number") remote.state.velY = p.velY;
         if (typeof p.jumpKind === "number") remote.state.jumpKind = p.jumpKind;

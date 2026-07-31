@@ -43,6 +43,36 @@ describe("PlayerState contract", () => {
         assert.equal(p.seq, 9);
         assert.equal(p.anim, "surf");
     });
+
+    it("applyMove carries surf / carve / gaitPhase / cast aim", () => {
+        const p = createPlayerSnapshot("a");
+        applyMove(p, {
+            surf: 0.73,
+            carve: -0.4,
+            gaitPhase: 1.25,
+            cast: 0.9,
+            castAimX: 0,
+            castAimY: 0,
+            castAimZ: 2,
+            surfing: true,
+            speed01: 0.6,
+        });
+        assert.equal(p.surf, 0.73);
+        assert.equal(p.carve, -0.4);
+        assert.equal(p.gaitPhase, 0.25);
+        assert.equal(p.cast, 0.9);
+        assert.equal(p.castAimZ, 2);
+        assert.equal(p.surfing, true);
+        assert.equal(p.anim, "surf");
+    });
+
+    it("applyMove falls back surf from surfing boolean", () => {
+        const p = createPlayerSnapshot("a", { surf: 0.2 });
+        applyMove(p, { surfing: true });
+        assert.ok(p.surf >= 0.85);
+        applyMove(p, { surfing: false });
+        assert.ok(p.surf <= 0.15);
+    });
 });
 
 describe("AOI", () => {

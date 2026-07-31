@@ -19,6 +19,13 @@
  * @property {number} lean
  * @property {boolean} grounded
  * @property {boolean} surfing
+ * @property {number} surf 0..1 eased board blend (not just boolean)
+ * @property {number} carve signed carve for surf arm asymmetry
+ * @property {number} gaitPhase 0..1 walk cycle (distance-driven locally)
+ * @property {number} cast 0..1 bending stance
+ * @property {number} castAimX
+ * @property {number} castAimY
+ * @property {number} castAimZ
  * @property {number} air 0..1 airborne blend
  * @property {number} velY vertical velocity (m/s) for air pose
  * @property {number} jumpKind 0 none · 1 ground · 2 double/flip · 3 ollie
@@ -43,6 +50,13 @@ export const PLAYER_STATE_FIELDS = Object.freeze([
     "lean",
     "grounded",
     "surfing",
+    "surf",
+    "carve",
+    "gaitPhase",
+    "cast",
+    "castAimX",
+    "castAimY",
+    "castAimZ",
     "air",
     "velY",
     "jumpKind",
@@ -73,6 +87,13 @@ export function createPlayerSnapshot(sessionId, patch = {}) {
         lean: patch.lean ?? 0,
         grounded: patch.grounded !== false,
         surfing: !!patch.surfing,
+        surf: patch.surf ?? (patch.surfing ? 1 : 0),
+        carve: patch.carve ?? 0,
+        gaitPhase: patch.gaitPhase ?? 0,
+        cast: patch.cast ?? 0,
+        castAimX: patch.castAimX ?? 0,
+        castAimY: patch.castAimY ?? 0,
+        castAimZ: patch.castAimZ ?? 1,
         air: patch.air ?? 0,
         velY: patch.velY ?? 0,
         jumpKind: patch.jumpKind ?? 0,
@@ -138,6 +159,25 @@ export function applyMove(player, move, now = Date.now()) {
     }
     if (typeof move.grounded === "boolean") player.grounded = move.grounded;
     if (typeof move.surfing === "boolean") player.surfing = move.surfing;
+    if (typeof move.surf === "number" && Number.isFinite(move.surf)) {
+        player.surf = Math.max(0, Math.min(1, move.surf));
+    } else if (typeof move.surfing === "boolean") {
+        player.surf = move.surfing ? Math.max(player.surf ?? 0, 0.85) : Math.min(player.surf ?? 0, 0.15);
+    }
+    if (typeof move.carve === "number" && Number.isFinite(move.carve)) {
+        player.carve = Math.max(-1, Math.min(1, move.carve));
+    }
+    if (typeof move.gaitPhase === "number" && Number.isFinite(move.gaitPhase)) {
+        let g = move.gaitPhase % 1;
+        if (g < 0) g += 1;
+        player.gaitPhase = g;
+    }
+    if (typeof move.cast === "number" && Number.isFinite(move.cast)) {
+        player.cast = Math.max(0, Math.min(1, move.cast));
+    }
+    if (typeof move.castAimX === "number" && Number.isFinite(move.castAimX)) player.castAimX = move.castAimX;
+    if (typeof move.castAimY === "number" && Number.isFinite(move.castAimY)) player.castAimY = move.castAimY;
+    if (typeof move.castAimZ === "number" && Number.isFinite(move.castAimZ)) player.castAimZ = move.castAimZ;
     if (typeof move.air === "number" && Number.isFinite(move.air)) {
         player.air = Math.max(0, Math.min(1, move.air));
     }

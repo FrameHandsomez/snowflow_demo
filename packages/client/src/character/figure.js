@@ -794,17 +794,21 @@ export class Figure {
             }
 
             // ---- surf target: out, forward and a little down ----------------
+            // Yield to cast so bending hands still read while snow-surfing.
             if (surf > 0.001) {
-                const carve = ch.carve;
+                const carve = ch.carve || 0;
+                const surfW = surf * (1 - Math.min(1, cast * 1.15));
                 // Trailing arm rises, leading arm drops into the turn — the
                 // same asymmetry a snowboarder holds through a carve.
                 const rise = 0.02 + carve * sgn * 0.22;
                 const sx = _sh[0] + rX * (sgn * 0.33) + fX * 0.24 + uX * rise;
                 const sy = _sh[1] + rY * (sgn * 0.33) + fY * 0.24 + uY * rise;
                 const sz = _sh[2] + rZ * (sgn * 0.33) + fZ * 0.24 + uZ * rise;
-                tx += (sx - tx) * surf;
-                ty += (sy - ty) * surf;
-                tz += (sz - tz) * surf;
+                if (surfW > 0.001) {
+                    tx += (sx - tx) * surfW;
+                    ty += (sy - ty) * surfW;
+                    tz += (sz - tz) * surfW;
+                }
             }
 
             // Elbows point back and out.
