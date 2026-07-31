@@ -10,6 +10,29 @@ no meshes, no HDRIs and no animation data in this repository.
 > Safari 26+) and a discrete or recent integrated GPU. There is no WebGL
 > fallback by design — if `navigator.gpu` is missing the page says so and stops.
 
+This repo is now an **npm workspaces monorepo** (Phase 0 foundation for the
+open-world RPG roadmap):
+
+| Package | Path | Role |
+|---------|------|------|
+| `@snowflow/client` | `packages/client` | Babylon / WebGPU demo + HUD |
+| `@snowflow/server` | `packages/server` | Colyseus zone room + `/health` |
+| `@snowflow/shared` | `packages/shared` | Protocol version, schemas, constants |
+
+Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/FIX-RUNBOOK.md`](docs/FIX-RUNBOOK.md) · [`docs/game_roadmap.md`](docs/game_roadmap.md)
+
+### Quick start (monorepo)
+
+```bash
+npm install
+npm run dev:client    # http://localhost:5173  (offline demo)
+npm run dev:server    # http://localhost:2567/health
+npm run check         # shared + server syntax + client build
+```
+
+Root scripts proxy into workspaces. When something breaks, follow the fix
+runbook before large refactors.
+
 ---
 
 ## Controls

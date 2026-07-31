@@ -9,10 +9,19 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
 
 ## [Unreleased]
 
-**Branch:** `feature/shrine-courtyard-pad-restore` (merged to `main` @ `062db6f`)  
-**ก่อนหน้าใน Unreleased:** `feature/spawn-ruin` (PR #1)
+**Branch:** `feature/foundation&decisions`  
+**ก่อนหน้า:** courtyard pad / spawn ruin บน `main`
 
 ### Added
+- **Phase 0 monorepo foundation (enterprise-lite)**
+  - `packages/client` — ย้าย SNOWFLOW demo ทั้งก้อน (`src/`, `index.html`, Vite)
+  - `packages/server` — Colyseus `ZoneRoom` + Express `GET /health` (port 2567)
+  - `packages/shared` — `PROTOCOL_VERSION`, player/zone snapshot contracts, constants (AOI/tick)
+  - npm workspaces root scripts: `dev:client`, `dev:server`, `check`, `build:*`
+  - CI: `.github/workflows/ci.yml` (shared test + server check + client build)
+  - Docs: `docs/ARCHITECTURE.md`, `docs/FIX-RUNBOOK.md`, `docs/PHASE0-DECISIONS.md`
+  - Client net stub: `packages/client/src/net/session.js` (ไม่ auto-connect — offline ยังรันได้)
+  - HUD motion: DOM + GSAP (`packages/client/src/ui/motion.js`) — ไม่ใช้ Babylon.GUI
 - **Shrine courtyard flat pad** (CPU + GPU height sync)
   - constants: `COURTYARD_RADIUS = 20.0`, `COURTYARD_BLEND = 10.0`
   - shared WGSL: `src/shaders/lib/snowCourtyard.wgsl` (`courtyardWeight` /

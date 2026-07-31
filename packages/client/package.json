@@ -1,0 +1,23 @@
+{
+  "name": "@snowflow/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SNOWFLOW client — Babylon.js WebGPU snow world + HUD",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.18.0",
+    "@babylonjs/materials": "^9.18.0",
+    "@snowflow/shared": "*",
+    "colyseus.js": "^0.16.0",
+    "gsap": "^3.15.0"
+  },
+  "devDependencies": {
+    "vite": "^8.1.5"
+  }
+}

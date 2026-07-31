@@ -1,28 +1,29 @@
 {
-  "name": "snowflow",
-  "version": "1.0.0",
-  "description": "Real-time procedural snow rendering tech demo (Babylon.js / WebGPU)",
+  "name": "snowflow-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SNOWFLOW open-world foundation — client (Babylon/WebGPU) + Colyseus server + shared contracts",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "keywords": [
-    "webgpu",
-    "babylonjs",
-    "wgsl",
-    "snow",
-    "terrain",
-    "procedural",
-    "graphics"
+  "workspaces": [
+    "packages/*"
   ],
-  "license": "MIT",
-  "dependencies": {
-    "@babylonjs/core": "^9.18.0",
-    "@babylonjs/materials": "^9.18.0"
+  "scripts": {
+    "dev": "npm run dev -w @snowflow/client",
+    "dev:client": "npm run dev -w @snowflow/client",
+    "dev:server": "npm run dev -w @snowflow/server",
+    "dev:all": "npm run dev:server & npm run dev:client",
+    "build": "npm run build -w @snowflow/shared && npm run build -w @snowflow/client && npm run build -w @snowflow/server",
+    "build:client": "npm run build -w @snowflow/client",
+    "build:server": "npm run build -w @snowflow/server",
+    "build:shared": "npm run build -w @snowflow/shared",
+    "typecheck": "npm run typecheck -w @snowflow/shared && npm run typecheck -w @snowflow/server",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run build:shared && npm run typecheck && npm run build:client && npm run build:server",
+    "clean": "npm run clean --workspaces --if-present && rimraf node_modules packages/*/node_modules packages/*/dist"
   },
-  "devDependencies": {
-    "vite": "^8.1.5"
-  }
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
 }

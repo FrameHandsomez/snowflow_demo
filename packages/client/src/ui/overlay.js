@@ -26,6 +26,7 @@ import {
     normalizeCrosshairCode,
     normalizeHex,
 } from "./crosshair.js";
+import { tweenOverlay } from "./motion.js";
 
 const CSS = `
 #ov {
@@ -38,6 +39,8 @@ const CSS = `
   border-left: 1px solid rgba(143, 196, 232, 0.14);
   overflow-y: auto; overscroll-behavior: contain;
   padding: 14px 16px 40px;
+  /* visibility/opacity driven by GSAP (tweenOverlay); .show still gates display */
+  opacity: 0;
 }
 #ov.show { display: block; }
 #ov::-webkit-scrollbar { width: 8px; }
@@ -871,7 +874,7 @@ export class Overlay {
 
     toggle() {
         this.visible = !this.visible;
-        this.el.classList.toggle("show", this.visible);
+        tweenOverlay(this.el, this.visible);
         if (this.visible) {
             this._syncWidgets();
             this._syncBindings();

@@ -29,6 +29,7 @@ import { SpellSystem } from "./spells/spellSystem.js";
 import { Overlay } from "./ui/overlay.js";
 import { Crosshair } from "./ui/crosshair.js";
 import { SkillBar } from "./ui/skillBar.js";
+import { bindGsapToScene } from "./ui/motion.js";
 import { Sky } from "./render/sky.js";
 import { ShadowSystem } from "./render/shadows.js";
 import { Terrain } from "./terrain/terrain.js";
@@ -221,6 +222,9 @@ async function boot() {
     spells.finishWarmUp();
 
     // ------------------------------------------------------------- run loop
+    // HUD GSAP clock follows the scene loop (DOM motion — not Babylon.GUI).
+    bindGsapToScene(scene);
+
     let prev = performance.now();
     let time = 0;
 

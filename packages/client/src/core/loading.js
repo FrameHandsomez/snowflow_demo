@@ -4,7 +4,10 @@
  * A phase-weighted progress model: each phase declares how much of the bar it
  * owns, and the bar only ever moves forward. `phase()` also yields to the
  * browser so the DOM actually repaints between heavy synchronous steps.
+ * Exit fade uses GSAP (DOM motion — not Babylon.GUI).
  */
+
+import { gsap, tweenBootDone } from "../ui/motion.js";
 
 const bar = /** @type {HTMLElement} */ (document.getElementById("boot-bar"));
 const label = /** @type {HTMLElement} */ (document.getElementById("boot-phase"));
@@ -25,7 +28,14 @@ export function nextFrame() {
 export async function phase(text, to) {
     if (label) label.textContent = text;
     progress = Math.max(progress, to);
-    if (bar) bar.style.width = (progress * 100).toFixed(1) + "%";
+    if (bar) {
+        gsap.to(bar, {
+            width: (progress * 100).toFixed(1) + "%",
+            duration: 0.28,
+            ease: "power1.out",
+            overwrite: "auto",
+        });
+    }
     await nextFrame();
 }
 
@@ -33,12 +43,7 @@ export async function done() {
     await phase("ready", 1);
     // Let the bar visibly land before the fade starts.
     await new Promise((r) => setTimeout(r, 360));
-    root?.classList.add("gone");
-    hint?.classList.add("show");
-    setTimeout(() => {
-        root?.remove();
-        hint?.classList.remove("show");
-    }, 6000);
+    await tweenBootDone(root, hint);
 }
 
 export function fail(message) {

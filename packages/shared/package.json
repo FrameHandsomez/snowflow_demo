@@ -1,0 +1,23 @@
+{
+  "name": "@snowflow/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared contracts between client and server (schemas, constants, protocol version)",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./schema/*": "./src/schema/*",
+    "./protocol": "./src/protocol.js",
+    "./constants": "./src/constants.js"
+  },
+  "scripts": {
+    "build": "node -e \"console.log('@snowflow/shared: pure ESM, no build step')\"",
+    "typecheck": "node --check src/index.js && node --check src/protocol.js && node --check src/constants.js && node --check src/schema/player.js && node --check src/schema/zone.js",
+    "test": "node --test src/**/*.test.js",
+    "clean": "node -e \"\""
+  },
+  "dependencies": {
+    "@colyseus/schema": "^3.0.0"
+  }
+}

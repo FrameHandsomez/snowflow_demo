@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Shared contracts (syntax + unit)
+        run: |
+          npm run build:shared
+          npm run typecheck -w @snowflow/shared
+          npm test -w @snowflow/shared
+
+      - name: Server syntax check
+        run: npm run build -w @snowflow/server
+
+      - name: Client production build
+        run: npm run build -w @snowflow/client

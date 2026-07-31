@@ -9,6 +9,7 @@
 
 import { S, onChange } from "../core/settings.js";
 import { bindings, formatCode } from "../core/bindings.js";
+import { flashSkillSlot } from "./motion.js";
 
 /** Flavour costs under the icon (not enforced). */
 const FLOW_COST = [15, 0, 40, 55, 70];
@@ -61,9 +62,7 @@ export class SkillBar {
         onChange("showSkillBar", () => this._applyVisible());
         onChange("showSpells", () => this._applyVisible());
 
-        /** Flash timers per slot (seconds remaining). */
-        this._flash = [0, 0, 0, 0, 0];
-        /** @type {boolean[]} */
+        /** @type {boolean[]} last active edge for cast flash */
         this._wasActive = [false, false, false, false, false];
     }
 
@@ -319,9 +318,9 @@ body.has-skill-bar #hint {
 
     /**
      * @param {import("../spells/spellSystem.js").SpellSystem} spells
-     * @param {number} dt
+     * @param {number} [_dt] kept for call-site compatibility; flash is GSAP-driven
      */
-    update(spells, dt) {
+    update(spells, _dt) {
         if (S.showSkillBar === false) return;
         this.refreshKeys();
 
@@ -339,14 +338,12 @@ body.has-skill-bar #hint {
             const dur = st.duration || 1;
             const p = active && dur > 0 ? Math.max(0, Math.min(1, rem / dur)) : 0;
 
-            // Cast edge → flash
-            if (active && !this._wasActive[i]) this._flash[i] = 0.22;
+            // Cast edge → GSAP punch (DOM motion, not Babylon.GUI)
+            if (active && !this._wasActive[i]) flashSkillSlot(el);
             this._wasActive[i] = active;
-            if (this._flash[i] > 0) this._flash[i] = Math.max(0, this._flash[i] - dt);
 
             el.classList.toggle("active", active && !hold);
             el.classList.toggle("hold", hold);
-            el.classList.toggle("flash", this._flash[i] > 0);
             el.classList.toggle("dim", active && !hold);
 
             // Conic: empty track when ready; full→empty while active (remaining).

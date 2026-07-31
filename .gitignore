@@ -3,7 +3,10 @@ node_modules/
 
 # build output
 dist/
+**/dist/
 .vite/
+**/.vite/
+packages/*/node_modules/
 
 # logs and local env
 *.log
@@ -24,3 +27,4 @@ Thumbs.db
 *.webp
 *.mp4
 *.webm
+.zcode/
