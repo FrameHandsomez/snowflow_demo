@@ -25,6 +25,7 @@ import waterLib from "./lib/water.wgsl?raw";
 import crystalLib from "./lib/crystal.wgsl?raw";
 import postCommonLib from "./lib/postCommon.wgsl?raw";
 import ridgeLib from "./lib/ridge.wgsl?raw";
+import courtyardLib from "./lib/snowCourtyard.wgsl?raw";
 
 import heightBakeFrag from "./heightBake.fragment.wgsl?raw";
 import auxBakeFrag from "./auxBake.fragment.wgsl?raw";
@@ -86,6 +87,7 @@ const INCLUDES = {
     snowCrystal: crystalLib,
     snowPostCommon: postCommonLib,
     snowRidge: ridgeLib,
+    snowCourtyard: courtyardLib,
 };
 
 const SHADERS = {

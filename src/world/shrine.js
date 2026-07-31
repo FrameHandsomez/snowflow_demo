@@ -13,6 +13,15 @@ import { SPELL_LIGHT_UNIFORMS } from "../spells/spellLights.js";
 export const SHRINE_SPAWN = Object.freeze({ x: 8, z: -6 });
 
 /**
+ * Flat courtyard radius around the spawn. Inside this ring the snow is flattened
+ * to the authored pad height instead of showing the raw heightfield dunes.
+ * Covers the gate approach, side walls, and altar apron.
+ */
+export const COURTYARD_RADIUS = 20.0;
+/** Soft blend width at the courtyard rim so the pad slopes into the surrounding snow. */
+export const COURTYARD_BLEND = 10.0;
+
+/**
  * Static world-space collision volume. It deliberately has no Babylon types:
  * shrine gameplay must not depend on the render mesh or its lifecycle.
  *
@@ -21,6 +30,8 @@ export const SHRINE_SPAWN = Object.freeze({ x: 8, z: -6 });
 
 const SHRINE_CASCADES = 2;
 const BASE_RADIUS = 7.2;
+const _flatNormal = new Vector3(0, 1, 0);
+const _blendNormal = new Vector3();
 
 const _splits = new Vector4();
 const _cameraPos = new Vector3();
@@ -42,6 +53,10 @@ export class SpawnShrine {
         this.mesh = built.mesh;
         /** @type {readonly StaticObstacleAabb[]} */
         this.obstacles = built.obstacles;
+        /** Shared courtyard floor height used by mesh, collision, and grounding. */
+        this.padY = built.padY;
+        this.padRadius = COURTYARD_RADIUS;
+        this.padBlend = COURTYARD_BLEND;
         this.material = this._makeMaterial();
         this.mesh.material = this.material;
         this.mesh.renderingGroupId = 1;
@@ -53,6 +68,57 @@ export class SpawnShrine {
         );
 
         this._pushUniforms(_cameraPos);
+    }
+
+    /**
+     * Horizontal weight of the flat courtyard pad at a world XZ sample.
+     * 1 = fully on the pad, 0 = pure heightfield.
+     */
+    padWeight(x, z) {
+        const dx = x - SHRINE_SPAWN.x;
+        const dz = z - SHRINE_SPAWN.z;
+        const r = Math.hypot(dx, dz);
+        const inner = this.padRadius - this.padBlend;
+        if (r <= inner) return 1;
+        if (r >= this.padRadius) return 0;
+        const t = (r - inner) / this.padBlend;
+        // Smoothstep falloff so walk/surf don't hitch at the rim.
+        return 1 - t * t * (3 - 2 * t);
+    }
+
+    /**
+     * Gameplay ground height: flat pad inside the courtyard, terrain outside,
+     * with a soft blend at the rim so the player never steps a cliff edge.
+     */
+    heightAt(x, z) {
+        const w = this.padWeight(x, z);
+        if (w <= 0) return this.terrain.heightAt(x, z);
+        if (w >= 1) return this.padY;
+        return this.padY * w + this.terrain.heightAt(x, z) * (1 - w);
+    }
+
+    /**
+     * Ground normal matching {@link heightAt}. Fully flat on the pad core so
+     * walk/surf lean does not fight a dune under the ruin floor.
+     * @param {import("@babylonjs/core/Maths/math.vector").Vector3} out
+     */
+    normalAt(x, z, out) {
+        const w = this.padWeight(x, z);
+        if (w >= 1) {
+            out.copyFrom(_flatNormal);
+            return out;
+        }
+        this.terrain.normalAt(x, z, out);
+        if (w <= 0) return out;
+        _blendNormal.copyFrom(_flatNormal);
+        out.x = out.x * (1 - w) + _blendNormal.x * w;
+        out.y = out.y * (1 - w) + _blendNormal.y * w;
+        out.z = out.z * (1 - w) + _blendNormal.z * w;
+        const len = Math.hypot(out.x, out.y, out.z) || 1;
+        out.x /= len;
+        out.y /= len;
+        out.z /= len;
+        return out;
     }
 
     _makeMaterial() {
@@ -153,11 +219,25 @@ export class SpawnShrine {
         }
     }
 
+    /**
+     * Visual pack only — gameplay grounding still uses {@link heightAt}.
+     * Compress the courtyard disc and approach so the snow reads as a worked pad
+     * under the leveled ruin, without relying on deform for collision.
+     */
     stampSnow() {
         const deform = this.terrain.deform;
-        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z, BASE_RADIUS + 0.8, 0.14, 0.11, 0.42, 0.5, 0, 1, 0.55);
-        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z - 6.4, 3.2, 0.1, 0.06, 0.34, 0.36, 0, 1.9, 0.4);
-        deform.brush(SHRINE_SPAWN.x, SHRINE_SPAWN.z + 4.9, 2.5, 0.12, 0.08, 0.5, 0.58, 0, 1.2, 0.5);
+        const cx = SHRINE_SPAWN.x;
+        const cz = SHRINE_SPAWN.z;
+        // Broad outer settle around the whole ruin footprint.
+        deform.brush(cx, cz, BASE_RADIUS + 0.8, 0.12, 0.09, 0.38, 0.46, 0, 1, 0.5);
+        // Flat courtyard core matching padRadius — low berm so the floor stays open.
+        deform.brush(cx, cz, this.padRadius * 0.92, 0.18, 0.04, 0.55, 0.62, 0, 1, 0.28);
+        // Soft rim ring where pad blends back into dunes.
+        deform.brush(cx, cz, this.padRadius + 0.35, 0.08, 0.07, 0.32, 0.4, 0, 1, 0.62);
+        // South approach steps / gate path.
+        deform.brush(cx, cz - 6.4, 3.35, 0.12, 0.05, 0.4, 0.42, 0, 1.85, 0.36);
+        // North altar apron.
+        deform.brush(cx, cz + 4.9, 2.65, 0.14, 0.06, 0.52, 0.6, 0, 1.15, 0.45);
     }
 
     dispose() {
@@ -168,14 +248,30 @@ export class SpawnShrine {
     }
 }
 
+/**
+ * Sample a stable courtyard floor from the heightfield. Uses the spawn centre
+ * plus a ring of interior points so one dune spike does not lift the whole ruin.
+ */
+function samplePadY(terrain, cx, cz) {
+    let sum = terrain.heightAt(cx, cz);
+    let n = 1;
+    const ring = 2.4;
+    for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        sum += terrain.heightAt(cx + Math.cos(a) * ring, cz + Math.sin(a) * ring);
+        n++;
+    }
+    return sum / n;
+}
+
 function buildMesh(scene, terrain, cx, cz) {
     const positions = [];
     const normals = [];
     const indices = [];
     /** @type {StaticObstacleAabb[]} */
     const obstacles = [];
-
-    const groundAt = (x, z) => terrain.heightAt(cx + x, cz + z);
+    // One shared floor for every module — ruin pieces must not stair-step dunes.
+    const padY = samplePadY(terrain, cx, cz);
 
     const addBox = (x0, y0, z0, x1, y1, z1) => {
         const base = positions.length / 3;
@@ -199,7 +295,7 @@ function buildMesh(scene, terrain, cx, cz) {
     };
 
     const addModule = (x, z, halfX, halfZ, bottom, top, blocksMovement = false) => {
-        const y = groundAt(x, z);
+        const y = padY;
         const minX = cx + x - halfX;
         const minY = y + bottom;
         const minZ = cz + z - halfZ;
@@ -272,6 +368,6 @@ function buildMesh(scene, terrain, cx, cz) {
     vd.applyToMesh(mesh, false);
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
-    mesh.metadata = { triangles: indices.length / 3, vertices: positions.length / 3 };
-    return { mesh, obstacles: Object.freeze(obstacles) };
+    mesh.metadata = { triangles: indices.length / 3, vertices: positions.length / 3, padY };
+    return { mesh, obstacles: Object.freeze(obstacles), padY };
 }

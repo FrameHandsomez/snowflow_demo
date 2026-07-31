@@ -9,6 +9,7 @@
 #include<snowTerrain>
 #include<snowDeform>
 #include<snowClipmap>
+#include<snowCourtyard>
 
 attribute position: vec3f;
 
@@ -31,6 +32,13 @@ uniform deformCenter: vec2f;
 uniform deformSize: f32;
 uniform deformDepthScale: f32;
 
+// Courtyard pad — must match snow.vertex.wgsl exactly or the shadow depth
+// would render against a surface the beauty pass is not drawing.
+uniform courtyardCenter: vec2f;
+uniform courtyardRadius: f32;
+uniform courtyardBlend: f32;
+uniform courtyardPadY: f32;
+
 var heightTex: texture_2d<f32>;
 var heightTexSampler: sampler;
 var auxTex: texture_2d<f32>;
@@ -52,6 +60,16 @@ fn main(input: VertexInputs) -> FragmentInputs {
     let hUV = worldToHeightUV(worldXZ, uniforms.worldOrigin, uniforms.worldSize);
 
     var h = sampleHeightBicubic(heightTex, heightTexSampler, hUV, uniforms.heightRes);
+
+    // Courtyard pad — flatten the macro height BEFORE adding fine + deformation,
+    // matching snow.vertex.wgsl exactly so the shadow depth renders against the
+    // same surface the beauty pass draws. See the note there.
+    if (uniforms.courtyardRadius > 0.0) {
+        h = courtyardFlattenHeight(
+            h, worldXZ,
+            uniforms.courtyardCenter, uniforms.courtyardRadius, uniforms.courtyardBlend, uniforms.courtyardPadY
+        );
+    }
 
     let exposure = textureSampleLevel(auxTex, auxTexSampler, hUV, 0.0).a;
     if (cv.spacing < 0.42) {

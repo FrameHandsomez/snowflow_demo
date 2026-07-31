@@ -22,11 +22,13 @@
 #include<snowShading>
 #include<snowSpellLights>
 #include<snowAtmosphere>
+#include<snowCourtyard>
 
 varying vWorld: vec3f;
 varying vHeightUV: vec2f;
 varying vViewDist: f32;
 varying vSpacing: f32;
+varying vCourtyardWeight: f32;
 
 // ------------------------------------------------------------------ textures
 var auxTex: texture_2d<f32>;
@@ -81,6 +83,13 @@ uniform deformCenter: vec2f;
 uniform deformSize: f32;
 uniform deformTexel: f32;
 uniform deformDepthScale: f32;
+
+// Courtyard pad: flatten the shading normal to match the flat pad the vertex
+// shader displaced to. A negative radius disables the flattening.
+uniform courtyardCenter: vec2f;
+uniform courtyardRadius: f32;
+uniform courtyardBlend: f32;
+uniform courtyardPadY: f32;
 
 uniform ambientIntensity: f32;
 uniform debugMode: f32;
@@ -206,6 +215,19 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     var grad = aux.xy;
     let rockMask = aux.z;
     let exposure = aux.w;
+
+    // Flatten the macro slope inside the courtyard so the shading normal matches
+    // the flat pad the vertex shader displaced to. Done before adding fine and
+    // deformation gradients so those layers (which the CPU ground sampler does
+    // not include) sit on top of the flattened base rather than being partially
+    // flattened themselves — which would tilt the normal and fight the geometry.
+    // Gate matches the vertex path (radius < 0 disables the pad).
+    if (uniforms.courtyardRadius > 0.0) {
+        grad = courtyardFlattenGrad(
+            grad, world.xz,
+            uniforms.courtyardCenter, uniforms.courtyardRadius, uniforms.courtyardBlend
+        );
+    }
 
     let fine = terrainFineFiltered(
         world.xz, uniforms.windAngle, exposure, uniforms.sastrugiAmp, footprint

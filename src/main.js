@@ -129,14 +129,19 @@ async function boot() {
     const shrine = new SpawnShrine(scene, terrain, sky, shadows);
     shrine.registerPrepass(depthPass);
 
+    // Flatten the snow terrain under the shrine so dunes do not show through.
+    terrain.setCourtyardPad(shrine.padY);
+
     await loading.phase("placing character", 0.62);
 
-    const character = new CharacterController(terrain, shrine.obstacles);
+    // Inside the courtyard the shrine is the ground sampler: flat padY, not dunes.
+    const character = new CharacterController(shrine, shrine.obstacles);
     character.position.set(SHRINE_SPAWN.x, 0, SHRINE_SPAWN.z);
-    character.position.y = terrain.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
+    character.position.y = shrine.heightAt(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
 
     // The figure: skeleton, garment simulation, shell fur.
-    const figure = new Character(scene, terrain, sky, shadows, character);
+    // Feet/cloth must share the same pad sampler or they plant into dunes under a flat body.
+    const figure = new Character(scene, shrine, sky, shadows, character);
     onChange("showCharacter", (v) => figure.setVisible(v));
     figure.registerPrepass(depthPass);
 
@@ -165,7 +170,8 @@ async function boot() {
     spells.registerPrepass(depthPass);
 
     // The rig needs ground heights and shrine volumes to keep the spring arm clear.
-    rig.groundAt = (x, z) => terrain.heightAt(x, z);
+    // Use the courtyard pad sampler so the arm does not sit on a dune under the ruin.
+    rig.groundAt = (x, z) => shrine.heightAt(x, z);
     rig.obstacles = shrine.obstacles;
 
     const post = new PostChain(scene, rig.camera, depthPass, sky);
@@ -181,6 +187,7 @@ async function boot() {
     shadows.update(rig.camera, sky.sunDir);
     sky.render(rig, 0);
     await terrain.warmUp();
+    // warmUp clears the brush queue — stamp the courtyard pad only after that.
     shrine.stampSnow();
     terrain.update(rig.camera.position, character.position, 0);
     figure.update(0);

@@ -2,6 +2,7 @@
 #include<snowTerrain>
 #include<snowDeform>
 #include<snowClipmap>
+#include<snowCourtyard>
 
 // position packs the clipmap addressing: (gridI, ringLevel, gridJ).
 attribute position: vec3f;
@@ -39,6 +40,13 @@ uniform deformCenter: vec2f;
 uniform deformSize: f32;
 uniform deformDepthScale: f32;
 
+// Courtyard pad: flatten the snow under the shrine so dunes do not show through.
+// A negative radius disables the flattening (no shrine in the scene).
+uniform courtyardCenter: vec2f;
+uniform courtyardRadius: f32;
+uniform courtyardBlend: f32;
+uniform courtyardPadY: f32;
+
 var heightTex: texture_2d<f32>;
 var heightTexSampler: sampler;
 var auxTex: texture_2d<f32>;
@@ -50,6 +58,7 @@ varying vWorld: vec3f;
 varying vHeightUV: vec2f;
 varying vViewDist: f32;
 varying vSpacing: f32;
+varying vCourtyardWeight: f32;
 
 @vertex
 fn main(input: VertexInputs) -> FragmentInputs {
@@ -69,6 +78,20 @@ fn main(input: VertexInputs) -> FragmentInputs {
 
     // --- macro height ------------------------------------------------------
     var h = sampleHeightBicubic(heightTex, heightTexSampler, hUV, uniforms.heightRes);
+
+    // --- courtyard pad -----------------------------------------------------
+    // Flatten the macro height to match the shrine pad BEFORE adding fine detail
+    // and deformation, so the controller's CPU ground (which samples the macro
+    // heightfield only) agrees with the visible surface. Without this, the blend
+    // zone shows a gradient of mismatch: fine + deformation get partially
+    // flattened on the GPU but not on the CPU, so the feet sink into the snow.
+    // Disabled when radius < 0.
+    if (uniforms.courtyardRadius > 0.0) {
+        h = courtyardFlattenHeight(
+            h, worldXZ,
+            uniforms.courtyardCenter, uniforms.courtyardRadius, uniforms.courtyardBlend, uniforms.courtyardPadY
+        );
+    }
 
     // --- fine height -------------------------------------------------------
     // Displaced only where the ring is fine enough to resolve it. Past roughly
@@ -116,6 +139,9 @@ fn main(input: VertexInputs) -> FragmentInputs {
     vertexOutputs.vHeightUV = hUV;
     vertexOutputs.vViewDist = distance(world, uniforms.cameraPos);
     vertexOutputs.vSpacing = cv.spacing;
-
+    vertexOutputs.vCourtyardWeight = select(
+        courtyardWeight(worldXZ, uniforms.courtyardCenter, uniforms.courtyardRadius, uniforms.courtyardBlend),
+        0.0, uniforms.courtyardRadius < 0.0
+    );
     vertexOutputs.position = uniforms.viewProjection * vec4f(world, 1.0);
 }

@@ -15,6 +15,7 @@ import { Constants } from "@babylonjs/core/Engines/constants";
 
 import { Heightfield, WORLD_SIZE } from "./heightfield.js";
 import { DeformationField } from "./deformation.js";
+import { SHRINE_SPAWN, COURTYARD_RADIUS, COURTYARD_BLEND } from "../world/shrine.js";
 import {
     buildClipmapMesh,
     BASE_SPACING,
@@ -83,6 +84,13 @@ export class Terrain {
         shadows.registerCaster(this.mesh, (c) => this._makeDepthMaterial(c));
 
         this.setDeformTexture(this.deform.texture);
+
+        /** Courtyard pad params — set by the shrine so the snow flattens under the ruin. */
+        this._courtyardCenter = new Vector2(SHRINE_SPAWN.x, SHRINE_SPAWN.z);
+        this._courtyardRadius = COURTYARD_RADIUS;
+        this._courtyardBlend = COURTYARD_BLEND;
+        this._courtyardPadY = 0;
+        this._courtyardEnabled = false;
     }
 
     _makeSnowMaterial() {
@@ -106,6 +114,7 @@ export class Terrain {
                     "fogDensity", "fogHeightFalloff", "fogStart", "aerialStrength",
                     "deformCenter", "deformSize", "deformTexel", "deformDepthScale",
                     "ambientIntensity", "debugMode", "screenSize",
+                    "courtyardCenter", "courtyardRadius", "courtyardBlend", "courtyardPadY",
                     ...SPELL_LIGHT_UNIFORMS,
                 ],
                 samplers: [
@@ -149,6 +158,7 @@ export class Terrain {
                     "worldOrigin", "worldSize", "heightRes",
                     "windAngle", "sastrugiAmp",
                     "deformCenter", "deformSize", "deformDepthScale",
+                    "courtyardCenter", "courtyardRadius", "courtyardBlend", "courtyardPadY",
                 ],
                 samplers: ["heightTex", "auxTex", "deformTex"],
                 shaderLanguage: ShaderLanguage.WGSL,
@@ -174,6 +184,7 @@ export class Terrain {
                     "worldOrigin", "worldSize", "heightRes",
                     "windAngle", "sastrugiAmp",
                     "deformCenter", "deformSize", "deformDepthScale",
+                    "courtyardCenter", "courtyardRadius", "courtyardBlend", "courtyardPadY",
                 ],
                 samplers: ["heightTex", "auxTex", "deformTex"],
                 shaderLanguage: ShaderLanguage.WGSL,
@@ -244,6 +255,16 @@ export class Terrain {
             }
         }
         if (this.prepassMat) this.prepassMat.setTexture("deformTex", tex);
+    }
+
+    /**
+     * Tell the terrain where the shrine courtyard pad is, so the snow flattens
+     * under the ruin. Called once when the shrine is built.
+     * @param {number} padY flat floor height of the courtyard
+     */
+    setCourtyardPad(padY) {
+        this._courtyardPadY = padY;
+        this._courtyardEnabled = true;
     }
 
     /**
@@ -322,6 +343,12 @@ export class Terrain {
         m.setFloat("deformTexel", this.deform.texel);
         m.setFloat("deformDepthScale", S.deformDepth);
 
+        // Courtyard pad: flatten the snow under the shrine so dunes do not show through.
+        m.setVector2("courtyardCenter", this._courtyardCenter);
+        m.setFloat("courtyardRadius", this._courtyardEnabled ? this._courtyardRadius : -1);
+        m.setFloat("courtyardBlend", this._courtyardBlend);
+        m.setFloat("courtyardPadY", this._courtyardPadY);
+
         m.setFloat("debugMode", DEBUG_MODES[S.debugView] ?? 0);
         _screen.set(
             this.scene.getEngine().getRenderWidth(),
@@ -346,6 +373,10 @@ export class Terrain {
             pm.setVector2("deformCenter", deformCenter);
             pm.setFloat("deformSize", deformSize);
             pm.setFloat("deformDepthScale", S.deformDepth);
+            pm.setVector2("courtyardCenter", this._courtyardCenter);
+            pm.setFloat("courtyardRadius", this._courtyardEnabled ? this._courtyardRadius : -1);
+            pm.setFloat("courtyardBlend", this._courtyardBlend);
+            pm.setFloat("courtyardPadY", this._courtyardPadY);
         }
 
         // ---- shadow-pass materials --------------------------------------
@@ -367,6 +398,10 @@ export class Terrain {
                 d.setVector2("deformCenter", deformCenter);
                 d.setFloat("deformSize", deformSize);
                 d.setFloat("deformDepthScale", S.deformDepth);
+                d.setVector2("courtyardCenter", this._courtyardCenter);
+                d.setFloat("courtyardRadius", this._courtyardEnabled ? this._courtyardRadius : -1);
+                d.setFloat("courtyardBlend", this._courtyardBlend);
+                d.setFloat("courtyardPadY", this._courtyardPadY);
             }
         }
     }
