@@ -1,30 +1,33 @@
 # HANDOFF — snowflow_demo (Frame)
 
-**วันที่:** 2026-07-30  
+**วันที่:** 2026-07-31  
 **Repo (local):** `C:\Users\chinn\web-projects\snowflow_demo`  
 **Remote:** `https://github.com/FrameHandsomez/snowflow_demo`  
-**Branch งาน shrine:** `feature/spawn-ruin`  
-**Tip (code):** `feature/spawn-ruin` — camera obstruction + collision + modular shrine + docs  
+**Branch งานปัจจุบัน:** `feature/shrine-courtyard-pad-restore`  
+**Tip (code):** `062db6f` — courtyard pad restore (CPU/GPU height sync) — **อยู่บน `main` แล้ว**  
 **Base / release ก่อนหน้า:** **v0.2.0** — Frame playability pass (`6b91898`)  
 **Upstream tip ตอน clone:** `5450397 Init`
 
 อ่านคู่กับ:
-- `CHANGELOG.md` — รายการสิ่งที่เปลี่ยน
+- `CHANGELOG.md` — รายการสิ่งที่เปลี่ยน (**อัปเดตทุก commit / ปิดงาน**)
 - `GUIDE.md` — อยากแก้ X ไปไฟล์ไหน / ค่าไหน
 - `README.md` — ภาพรวม tech demo ต้นฉบับ
 
 ---
 
-## เป้าหมาย session ล่าสุด (spawn ruin)
+## เป้าหมาย session ล่าสุด (courtyard pad)
 
-1. สร้าง ruin / shrine ถาวรรอบจุดเริ่มเกม  
-2. วางบน terrain height จริง + กดหิมะรอบฐาน  
-3. spawn ตัวละคร **ใน** courtyard  
-4. gameplay collision แยกจาก render mesh  
-5. camera spring-arm ไม่ทะลุ geometry shrine  
-6. แยก commit ตาม task + เตรียม docs / PR สำหรับทีม
+1. กู้ flat courtyard pad ที่หลุดจาก `main` หลัง branch reset  
+2. CPU `padWeight` / `heightAt` ตรงกับ GPU smoothstep flatten  
+3. multi-pass (beauty / depth / prepass) ใช้ height path เดียวกัน  
+4. ground sampler ของ controller / figure / camera = `shrine` ไม่ใช่ raw terrain  
+5. `stampSnow()` หลัง `terrain.warmUp()`  
+6. commit + push feature + fast-forward `main`  
+7. ปิด docs debt (CHANGELOG / HANDOFF) + structural QA ขอบ pad  
 
-งาน playability ก่อนหน้า (v0.2.0) ยังอยู่: rebind, crosshair, jump/flip/ollie, skill bar
+งานก่อนหน้าที่ยังอยู่:
+- spawn ruin mesh + collision AABB + camera obstruction (PR #1)
+- playability v0.2.0: rebind, crosshair, jump/flip/ollie, skill bar
 
 ---
 
@@ -32,7 +35,7 @@
 
 ```bash
 cd "C:\Users\chinn\web-projects\snowflow_demo"
-git checkout feature/spawn-ruin
+git checkout feature/shrine-courtyard-pad-restore   # หรือ main — tip เดียวกันตอนนี้
 npm install          # ถ้ายังไม่มี node_modules
 npm run dev -- --host ::  # instance เดียวสำหรับ localhost + 127.0.0.1
 ```
@@ -41,50 +44,33 @@ npm run dev -- --host ::  # instance เดียวสำหรับ localhost
 
 ---
 
-## สถานะโค้ด — feature/spawn-ruin
+## สถานะโค้ด — courtyard pad + shrine
 
-### Commits ที่เกี่ยวกับ shrine (ใหม่ → เก่า)
+### Commits ที่เกี่ยวกับ pad / shrine (ใหม่ → เก่า)
 
 ```text
-docs:  record spawn ruin gameplay pass          (docs commit รอบนี้)
+062db6f feat(world): restore shrine courtyard pad with CPU/GPU height sync
+54261b3 Merge pull request #1 from FrameHandsomez/feature/spawn-ruin
+331320b docs: record spawn ruin gameplay pass
 63b8c1d feat(camera): block shrine camera clipping
 73d59dd feat(gameplay): add shrine collision volumes
 7e233f3 feat(world): build modular shrine layout
 7e800bf feat(world): expand shrine spawn courtyard
-9faa7f1 Merge origin/main into feature/spawn-ruin
 5cf740b feat(world): spawn permanent ruin shrine
 ```
 
-(`783d5c7` skill bar มาจาก main ผ่าน merge — ไม่ใช่งาน shrine โดยตรง)
-
-### ไฟล์ใหม่ (shrine)
+### ไฟล์สำคัญ (pad)
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `src/world/shrine.js` | `SpawnShrine`, `SHRINE_SPAWN`, mesh + `obstacles` AABB |
-| `src/shaders/shrine.vertex.wgsl` | beauty vertex |
-| `src/shaders/shrine.fragment.wgsl` | stone/frost + shadows + spell lights |
-| `src/shaders/shrineDepth.vertex.wgsl` | cascade shadow caster |
-| `src/shaders/shrinePrepass.vertex.wgsl` | camera-depth prepass |
-
-### ไฟล์แก้หลัก (shrine)
-
-| ไฟล์ | ทำไมสำคัญ |
-|---|---|
-| `src/main.js` | construct, wire obstacles, stamp snow, warm-up, update, `SNOWFLOW.shrine` |
-| `src/character/controller.js` | optional obstacles + X/Z wall slide |
-| `src/core/camera.js` | socket arm + AABB obstruction |
-| `src/shaders/registry.js` | register shrine programs |
-
-### ไฟล์ใหม่ / แก้จาก v0.2.0 + skill bar (ยังใช้ได้)
-
-| ไฟล์ | หน้าที่ |
-|---|---|
-| `src/core/bindings.js` | defaults, 2-slot binds, localStorage v2 |
-| `src/ui/crosshair.js` | draw + parse + profile + color |
-| `src/ui/skillBar.js` | spell HUD 5 ช่อง |
-| `src/character/controller.js` | jump / double / flip / ollie **และ** shrine collision |
-| `CHANGELOG.md` / `HANDOFF.md` / `GUIDE.md` | เอกสาร Frame |
+| `src/world/shrine.js` | `COURTYARD_*`, `padWeight`, `heightAt`, `normalAt`, `padY`, stamp |
+| `src/shaders/lib/snowCourtyard.wgsl` | shared GPU weight / flatten height / flatten grad |
+| `src/shaders/snow.vertex.wgsl` | beauty: macro → courtyard → fine → deform |
+| `src/shaders/snow.fragment.wgsl` | macro grad flatten ก่อน fine/deform (gate radius > 0) |
+| `src/shaders/terrainDepth.vertex.wgsl` | shadow depth path ตรง beauty |
+| `src/shaders/terrainPrepass.vertex.wgsl` | camera-depth prepass path ตรง beauty |
+| `src/terrain/terrain.js` | `setCourtyardPad`, bind courtyard uniforms ครบ 3 materials |
+| `src/main.js` | `setCourtyardPad`, `CharacterController(shrine,…)`, `rig.groundAt` |
 
 ### สถาปัตยกรรมที่ต้องรักษา
 
@@ -92,8 +78,13 @@ docs:  record spawn ruin gameplay pass          (docs commit รอบนี้)
   - mesh = indexed static boxes ชุดเดียว (beauty / shadow / prepass)  
   - obstacles = immutable world AABB จาก module ที่ `blocksMovement`  
   - อย่า infer collision จาก triangles / Babylon picking
+- **Courtyard pad CPU/GPU sync**  
+  - weight: smoothstep `1 - t²(3-2t)`, radius 20, blend 10, center `SHRINE_SPAWN`  
+  - GPU flatten **หลัง macro ก่อน fine+deform** ทุก pass  
+  - CPU ground = macro heightfield + pad เท่านั้น (ไม่รวม fine/sastrugi)
 - **`stampSnow()` หลัง `await terrain.warmUp()`** — warm-up ล้าง brush queue
 - **Camera obstruction ใช้ AABB เดียวกับ player** ผ่าน `rig.obstacles = shrine.obstacles`
+- **Ground sampler ในลาน = `shrine`** — controller, figure, `rig.groundAt`
 - Spawn คงที่: `SHRINE_SPAWN = { x: 8, z: -6 }` (กลางลาน, ทางใต้เปิด)
 
 ### Blockers ที่ authored แล้ว
@@ -117,7 +108,8 @@ docs:  record spawn ruin gameplay pass          (docs commit รอบนี้)
 
 | Input | ผล |
 |---|---|
-| เข้าเกมใหม่ | ยืนใน courtyard ของ ruin ที่ `SHRINE_SPAWN` |
+| เข้าเกมใหม่ | ยืนใน courtyard แบนที่ `SHRINE_SPAWN` (ไม่จม dune) |
+| เดินออกขอบ blend (r≈10–20m) | พื้นค่อยๆ เอียงเข้า dunes แบบ smooth |
 | เดิน/surf เข้าเสา/ผนัง/แท่น | ชนแล้ว slide ตามแกนที่ว่าง |
 | หมุนกล้องรอบ ruin | arm หดก่อนทะลุ; ห่างแล้วค่อยยืดกลับ |
 | Click canvas | pointer lock |
@@ -155,8 +147,8 @@ docs:  record spawn ruin gameplay pass          (docs commit รอบนี้)
 หลังโหลดเกม มี global:
 
 ```js
-SNOWFLOW.shrine      // SpawnShrine → .mesh, .obstacles, .stampSnow()
-SNOWFLOW.character   // CharacterController → .obstacles, jump/surf state
+SNOWFLOW.shrine      // SpawnShrine → .padY, .padWeight, .heightAt, .obstacles, .stampSnow()
+SNOWFLOW.character   // CharacterController → .obstacles, jump/surf state (terrain = shrine)
 SNOWFLOW.rig         // CameraRig → .obstacles, .obstacleDistance, .groundAt
 SNOWFLOW.figure      // Character (mesh wrapper) → .figure = Figure skeleton
 SNOWFLOW.crosshair   // Crosshair API
@@ -165,34 +157,58 @@ SNOWFLOW.input       // raw input struct
 SNOWFLOW.S           // settings
 ```
 
-ตัวอย่าง:
+ตัวอย่าง QA ใน console:
 
 ```js
-SNOWFLOW.shrine.obstacles.length
-SNOWFLOW.character.obstacles === SNOWFLOW.shrine.obstacles
-SNOWFLOW.rig.obstacleDistance
-SNOWFLOW.character.position  // ควรใกล้ {x:8, z:-6} ตอน spawn
+const s = SNOWFLOW.shrine;
+// core pad
+s.padWeight(8, -6)            // → 1
+s.heightAt(8, -6) === s.padY  // → true
+// inner edge (r=10)
+s.padWeight(8, 4)             // → 1
+// mid blend (r=15)
+s.padWeight(8, 9)             // → 0.5
+// outer edge (r=20)
+s.padWeight(8, 14)            // → 0
+SNOWFLOW.character.obstacles === s.obstacles
+SNOWFLOW.rig.groundAt(8, -6) === s.heightAt(8, -6)
 ```
+
+---
+
+## QA — courtyard pad (2026-07-31)
+
+### Structural (อัตโนมัติ — ผ่าน)
+
+| ตรวจ | ผล |
+|---|---|
+| `COURTYARD_RADIUS=20`, `BLEND=10` | ผ่าน |
+| padWeight continuous ที่ r=10 (1) / r=15 (0.5) / r=20 (0) | ผ่าน |
+| GPU order macro→courtyard→fine→deform ครบ 3 vertex passes | ผ่าน |
+| fragment gate `courtyardRadius > 0` | ผ่าน |
+| `setCourtyardPad` + controller/figure/camera ใช้ shrine | ผ่าน |
+| `stampSnow` หลัง `terrain.warmUp` | ผ่าน |
+| `snowCourtyard.wgsl` + registry include | ผ่าน |
+| `npm run build` | ผ่าน |
+
+### In-browser WebGPU (manual — ยังค้างให้ Frame ยืนยัน)
+
+- [ ] เดิน core pad เท้าไม่จม dune
+- [ ] เดินขอบ blend (รอบ ~10–20m) ไม่มี cliff / hitch
+- [ ] ชน gate / wall / pillar / altar base แล้ว slide
+- [ ] กล้องไม่ทะลุ; arm ใช้ ground จาก pad
+- [ ] jump / surf / skill bar ยังปกติ
 
 ---
 
 ## งานที่ค้าง / แนวทาง Frame ต่อได้
 
-จัดลำดับหลัง merge `feature/spawn-ruin` (ไม่บังคับ):
-
-1. **Shrine gameplay**
-   - altar interaction zone (checkpoint / unlock / ritual) — แยก volume จาก collision
-   - respawn ผูก `SHRINE_SPAWN` หรือ checkpoint ถัดไป
-2. **Shrine presentation**
-   - VFX / spell-light รอบ altar
-   - material: triplanar stone, frost mask, weathered variation
-3. **Optional hero asset**
-   - imported `.glb` ทีหลัง — ต้อง review license, textures, shadow, depth prepass, collision แยก
-4. **Feel (จาก v0.2.0)**
-   - จูน ollie / flip / coyote
-5. **Engineering**
-   - visual QA บน Chrome/Edge WebGPU จริง (walk/surf/jump + หมุนกล้องรอบ gate/wall/pillar/altar)
-   - อย่า commit `package-lock.json` / `.zcode/` ถ้าไม่เกี่ยวกับงาน
+1. **Manual WebGPU walk QA** บนขอบ blend (checklist ด้านบน)  
+2. **Altar interaction zone** (checkpoint / unlock / ritual) — แยก volume จาก collision  
+3. **Respawn** ผูก `SHRINE_SPAWN` หรือ checkpoint ถัดไป  
+4. **Shrine presentation** — VFX / spell-light รอบ altar; triplanar stone / frost mask  
+5. **Feel** — จูน ollie / flip / coyote  
+6. **Optional hero asset** — `.glb` ทีหลัง (license, shadow, prepass, collision แยก)
 
 ---
 
@@ -203,6 +219,8 @@ SNOWFLOW.character.position  // ควรใกล้ {x:8, z:-6} ตอน spaw
 | ผูก collision กับ mesh | visual tweak จะเปลี่ยน gameplay โดยไม่ตั้งใจ |
 | เรียก `stampSnow` ก่อน `terrain.warmUp` | brush หาย |
 | เพิ่ม module blocking แต่ลืม `blocksMovement` | เดินทะลุ |
+| flatten หลัง fine/deform บน GPU | เท้าจม/ลอยที่ขอบ blend (เคยพังแล้ว) |
+| ground sampler กลับไป `terrain` | dune โผล่ใต้ตัวในลาน |
 | แก้ `figure.js` root pitch | กระทบ walk + surf + flip พร้อมกัน |
 | `pollInput` / `endFrame` ลำดับใน `main.js` | `jumpPressed` ต้องมีชีวิตถึง `character.update` |
 | Vite IPv4/IPv6 แยก process | kill process เดิม แล้วรัน `npm run dev -- --host ::` |
@@ -210,24 +228,24 @@ SNOWFLOW.character.position  // ควรใกล้ {x:8, z:-6} ตอน spaw
 
 ---
 
-## Git / PR กับทีม
+## Git / docs กับทีม
 
 ```text
-Branch:  feature/spawn-ruin
-Base:    main
+Branch:  feature/shrine-courtyard-pad-restore  (tip = main @ 062db6f)
 อย่า stage: package-lock.json, .zcode/
-หลัง merge: checkout main → pull → ลบ feature branch local/remote
+กฎ: ทุก commit / ปิดงาน → อัปเดต CHANGELOG.md
 ```
 
-### Verify ก่อน merge
+### Verify ก่อน merge งานถัดไป
 
-- [ ] `npm run build` ผ่าน
-- [ ] เข้าเกม spawn ใน courtyard เห็น ruin
-- [ ] เดิน/surf ชน gate / wall / pillar / altar base แล้ว slide
-- [ ] กล้องไม่ทะลุโครงสร้าง; ห่างแล้ว arm กลับ
-- [ ] steps / rubble ต่ำยังเดินผ่านได้
-- [ ] skill bar + jump/surf ยังปกติ
-- [ ] F1 / spells 1–5 ยังใช้ได้
+- [x] `npm run build` ผ่าน  
+- [x] structural pad QA ผ่าน  
+- [ ] manual WebGPU walk บน pad + blend  
+- [ ] เดิน/surf ชน gate / wall / pillar / altar base แล้ว slide  
+- [ ] กล้องไม่ทะลุโครงสร้าง; ห่างแล้ว arm กลับ  
+- [ ] skill bar + jump/surf ยังปกติ  
+- [ ] F1 / spells 1–5 ยังใช้ได้  
+- [ ] CHANGELOG อัปเดตแล้ว  
 
 ---
 
@@ -235,12 +253,12 @@ Base:    main
 
 ```text
 Repo: C:\Users\chinn\web-projects\snowflow_demo
-Branch: feature/spawn-ruin (shrine + collision + camera done)
+Branch: feature/shrine-courtyard-pad-restore (tip 062db6f = main)
 อ่าน HANDOFF.md + GUIDE.md + CHANGELOG.md [Unreleased] ก่อน
-Shrine: src/world/shrine.js — mesh + obstacles AABB แยกกัน
-Wire: main.js → CharacterController(terrain, shrine.obstacles), rig.obstacles
-Camera: core/camera.js nearestAabbEntry on socket→eye arm
-อย่า derive collision จาก mesh; stampSnow หลัง terrain.warmUp
-Next optional: altar interaction / shrine VFX / material polish
-อย่า commit package-lock.json หรือ .zcode/
+Courtyard: RADIUS 20 BLEND 10 — shrine.padWeight/heightAt + snowCourtyard.wgsl
+Wire: main.js → CharacterController(shrine, shrine.obstacles), rig.groundAt = shrine.heightAt
+GPU order: macro → courtyard flatten → fine → deform (all passes)
+stampSnow หลัง terrain.warmUp; อย่า derive collision จาก mesh
+Next: manual WebGPU QA edge blend → altar interaction / respawn
+ทุก commit ต้องอัปเดต CHANGELOG.md; อย่า commit package-lock.json หรือ .zcode/
 ```

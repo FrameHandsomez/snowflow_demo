@@ -63,13 +63,17 @@ snowflow_demo/
 | Settings ใหม่ใน F1 | `settings.js` `S` + `SCHEMA` | overlay สร้าง widget จาก schema |
 | ข้อความ hint ล่าง | `index.html` `#hint` | |
 | Skill bar ล่างจอ | `src/ui/skillBar.js` + `spells.hudSlots()` | F1 HUD `showSkillBar` | |
-| รูปร่าง / วาง ruin | `src/world/shrine.js` → `buildMesh` / `addModule` | ใช้ `groundAt` จาก terrain |
+| รูปร่าง / วาง ruin | `src/world/shrine.js` → `buildMesh` / `addModule` | modules ใช้ shared `padY` |
 | จุด spawn ตอนเข้าเกม | `SHRINE_SPAWN` ใน `shrine.js` + `main.js` | ตอนนี้ `{ x: 8, z: -6 }` |
+| ลานแบน / ขอบ blend | `COURTYARD_RADIUS` / `COURTYARD_BLEND` + `padWeight` | GPU: `snowCourtyard.wgsl` |
+| เท้าจม dune ในลาน | `main.js` ground sampler ต้องเป็น `shrine` | อย่า wire กลับ `terrain` |
+| CPU vs GPU height หลุด | order: macro→courtyard→fine→deform | ดู `snow.vertex.wgsl` |
 | ชนเสา/ผนัง shrine | `shrine.js` `blocksMovement` + `controller.js` `_resolveObstacles` | AABB แยกจาก mesh |
-| กล้องทะลุ ruin | `camera.js` `nearestAabbEntry` + `rig.obstacles` | wire จาก `main.js` |
+| กล้องทะลุ ruin | `camera.js` `nearestAabbEntry` + `rig.obstacles` | `rig.groundAt = shrine.heightAt` |
 | กดหิมะรอบ shrine | `shrine.stampSnow()` หลัง `terrain.warmUp()` | อย่าเรียกก่อน warm-up |
 | material / shadow shrine | `shrine*.wgsl` + `SpawnShrine._makeMaterial` | register ใน `registry.js` |
 | ลำดับระบบต่อเฟรม | `main.js` loop | poll → controller → figure → contact → camera… |
+| บันทึกงานที่ปิด | `CHANGELOG.md` [Unreleased] | **ทุก commit / ปิดงานต้องอัปเดต** |
 
 ---
 
