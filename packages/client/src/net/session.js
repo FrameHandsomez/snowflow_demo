@@ -14,6 +14,7 @@ import {
     PROTOCOL_VERSION,
     ROOM_NAME_ZONE,
     DEFAULT_ZONE_ID,
+    SPAWN_POSITION,
     MSG_WELCOME,
     MSG_PONG,
     MSG_PING,
@@ -39,13 +40,36 @@ import {
 export async function connectZone(opts = {}) {
     const endpoint = opts.endpoint || defaultEndpoint();
     const client = new Client(endpoint);
+
     const room = await client.joinOrCreate(ROOM_NAME_ZONE, {
         displayName: opts.displayName,
         zoneId: opts.zoneId || DEFAULT_ZONE_ID,
         protocolVersion: PROTOCOL_VERSION,
     });
 
-    const welcome = await waitMessage(room, MSG_WELCOME, 5_000);
+    // Bind immediately in the same turn as join resolution.
+    // If welcome was already dropped (rare race), fall back to spawn contract.
+    let welcome;
+    try {
+        welcome = await waitMessage(room, MSG_WELCOME, 5_000);
+    } catch (err) {
+        console.warn("[net] welcome timeout — using SPAWN_POSITION fallback", err?.message || err);
+        welcome = {
+            protocolVersion: PROTOCOL_VERSION,
+            zoneId: opts.zoneId || DEFAULT_ZONE_ID,
+            sessionId: room.sessionId,
+            player: {
+                sessionId: room.sessionId,
+                x: SPAWN_POSITION.x,
+                y: SPAWN_POSITION.y,
+                z: SPAWN_POSITION.z,
+                yaw: 0,
+            },
+            players: [],
+            tick: 0,
+        };
+    }
+
     if (welcome?.protocolVersion && welcome.protocolVersion !== PROTOCOL_VERSION) {
         await room.leave();
         throw new Error(

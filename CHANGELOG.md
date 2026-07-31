@@ -32,6 +32,10 @@ Upstream เดิม = tech demo หิมะ WebGPU (ไม่มี jump / re
   - headless smokes: `packages/server/scripts/spell-broadcast-smoke.mjs`, `aoi-interest-smoke.mjs`
 
 ### Fixed
+- **Join / welcome pose snap (Phase 1)**
+  - `Multiplayer.applyWelcomePose(welcome)` — XZ + yaw from server `welcome.player`; Y from local ground (`shrine`/`terrain.heightAt`) so peers do not float on `SPAWN_POSITION.y = 0`
+  - clears residual air/jump/flip on connect; logs `[mp] welcome pose …`
+  - `connectZone` falls back to `SPAWN_POSITION` if `MSG_WELCOME` times out (rare race) instead of failing the whole session
 - **Server move speed clamp (false rejects)**
   - do not inflate tiny wall-clock gaps to 16 ms for speed math (was freezing peers at spawn: first sample “125 m/s”, then every later step failed `MAX_MOVE_STEP` from origin)
   - speed check only when `wallDt >= 1/TICK_RATE_HZ`

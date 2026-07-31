@@ -132,6 +132,9 @@ export class Multiplayer {
                 },
             });
             this.remotes.seed(session.welcome?.players);
+            // Snap local hunter to server welcome pose (XZ/yaw) + local ground Y.
+            // Server SPAWN_POSITION.y is 0; client uses shrine/terrain heightAt.
+            this.applyWelcomePose(session.welcome);
             this.deformNet.bindRoom(session.room);
             this.spellNet.bindRoom(session.room);
             if (this.spells) this.spells.onSpellEvent = (event) => this.spellNet.emit(event);
@@ -162,6 +165,45 @@ export class Multiplayer {
         }
         if (this.spells) this.spells.onSpellEvent = null;
         this.connected = false;
+    }
+
+    /**
+     * Apply server welcome.player to the local CharacterController.
+     * XZ + yaw from server; Y from local ground sampler (shrine pad / terrain).
+     * @param {object | null | undefined} welcome
+     */
+    applyWelcomePose(welcome) {
+        const ch = this.character;
+        const p = welcome?.player;
+        if (!ch?.position || !p) return;
+
+        const x = Number.isFinite(p.x) ? p.x : ch.position.x;
+        const z = Number.isFinite(p.z) ? p.z : ch.position.z;
+        ch.position.x = x;
+        ch.position.z = z;
+
+        const ground = this.characterTerrain || this.terrain;
+        if (ground && typeof ground.heightAt === "function") {
+            ch.position.y = ground.heightAt(x, z);
+        } else if (Number.isFinite(p.y)) {
+            ch.position.y = p.y;
+        }
+
+        if (Number.isFinite(p.yaw)) ch.facing = p.yaw;
+
+        // Clear residual air / jump so we plant cleanly on join.
+        if ("velY" in ch) ch.velY = 0;
+        if ("grounded" in ch) ch.grounded = true;
+        if ("air" in ch) ch.air = 0;
+        if ("jumpsUsed" in ch) ch.jumpsUsed = 0;
+        if ("flipping" in ch) ch.flipping = false;
+        if ("flipAngle" in ch) ch.flipAngle = 0;
+        if ("olliePhase" in ch) ch.olliePhase = 0;
+        if ("surfAir" in ch) ch.surfAir = 0;
+
+        console.info(
+            `[mp] welcome pose x=${x.toFixed(2)} y=${ch.position.y.toFixed(2)} z=${z.toFixed(2)} yaw=${(ch.facing ?? 0).toFixed(2)}`,
+        );
     }
 
     /** @param {import('@babylonjs/core/Maths/math.vector').Vector3} cameraPos */
